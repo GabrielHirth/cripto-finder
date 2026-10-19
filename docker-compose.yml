@@ -1,0 +1,21 @@
+volumes:
+  dados-mongo:
+
+services:
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017" # opcional: ver os dados no MongoDB Compass
+    volumes:
+      - dados-mongo:/data/db # os dados continuam ao reiniciar
+  restheart:
+    image: softinstigate/restheart:8
+    depends_on:
+      - mongodb
+    environment:
+      RHO: '/mclient/connection-string->"mongodb://mongodb:27017";/http-listener/host->"0.0.0.0"'
+    ports:
+      - "8080:8080"
+    volumes:
+      - dados-mongo:/data/db
