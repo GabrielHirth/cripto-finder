@@ -1,0 +1,14 @@
+{
+  "name": "cripto-finder",
+  "version": "1.0.0",
+  "description": "Cripto Finder - API e Frontend",
+  "main": "app.js",
+  "type": "module",
+  "scripts": {
+    "start": "node ./node_modules/http-server/bin/http-server -p 8080 ./frontend -o",
+    "import": "node scripts/import-cripto.js"
+  },
+  "keywords": ["cripto", "api", "crypto"],
+  "author": "Gabriel Hirth",
+  "license": "MIT"
+}

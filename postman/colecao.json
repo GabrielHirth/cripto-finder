@@ -1,0 +1,161 @@
+{
+  "info": {
+    "name": "Cripto Finder API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "exporter": "Gabriel Hirth",
+    "date": "2026-10-19T00:00:00.000Z"
+  },
+  "item": [
+    {
+      "name": "DELETE /cripto/{id}",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:8080/cripto/{{id}}",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "cripto",
+            "{{id}}"
+          ]
+        },
+        "description": "Returns 204 No Content. Requires valid auth token."
+      }
+    },
+    {
+      "name": "PATCH /cripto/{id}",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:8080/cripto/{{id}}",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "cripto",
+            "{{id}}"
+          ]
+        },
+        "description": "Returns 200 OK. Requires valid auth token."
+      }
+    },
+    {
+      "name": "PUT /cripto/{id}",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:8080/cripto/{{id}}",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "cripto",
+            "{{id}}"
+          ]
+        },
+        "description": "Returns 200 OK. Requires valid auth token."
+      }
+    },
+    {
+      "name": "POST /cripto",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Location",
+            "value": "{{created_id}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {}
+        },
+        "url": {
+          "raw": "http://localhost:8080/cripto",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "cripto"
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /cripto",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:8080/cripto?pagesize=100",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "cripto"
+          ],
+          "query": [
+            {
+              "key": "pagesize",
+              "value": "100"
+            }
+          ]
+        },
+        "description": "Returns 200 OK with list of cryptocurrencies. Requires valid auth token."
+      }
+    },
+    {
+      "name": "GET /crypto/{id}",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:8080/crypto/{{id}}",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "crypto",
+            "{{id}}"
+          ]
+        }
+      }
+    }
+  ]
+}

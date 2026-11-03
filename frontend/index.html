@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cripto Finder</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Cripto Finder</h1>
+  <section class="controls">
+    <input type="text" id="search" placeholder="Buscar por nome ou símbolo" />
+    <select id="filter-marketcap">
+      <option value="all">Cap. de mercado</option>
+      <option value="gt-1b">&gt; 1 B</option>
+      <option value="lt-1b">&lt; 1 B</option>
+    </select>
+    <select id="filter-change">
+      <option value="all">Variação 24h</option>
+      <option value="gt-0">Positiva</option>
+      <option value="lt-0">Negativa</option>
+    </select>
+  </section>
+  <ul id="crypto-list" class="list"></ul>
+  <script src="app.js"></script>
+</body>
+</html>
