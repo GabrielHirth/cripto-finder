@@ -34,43 +34,57 @@ cripto-finder/
 └── README.md
 ```
 
-## Endpoints principais (RestHeart)
+## Como rodar
+
+```bash
+docker-compose up -d     # MongoDB + RestHeart
+npm install
+npm run import           # busca as moedas no CoinGecko e salva no banco
+npm start                # abre o frontend em http://localhost:3000
+npm test                 # testa as regras da carteira
+```
+
+## Carteira virtual
+
+Ao abrir o site pela primeira vez, a carteira é criada sozinha com R$ 10.000 fictícios
+(o id fica guardado no navegador). Dá para:
+
+- **Comprar** informando quanto investir em reais (atalhos de 10%, 25%, 50% e tudo)
+- **Vender** parte ou tudo, com atalhos de 25%, 50%, 75% e tudo
+- Ver o **ganho ou perda** de cada moeda em relação ao preço médio de compra
+- Consultar o **histórico** das últimas 50 operações
+- **Recomeçar do zero**
+
+As regras ficam em `frontend/carteira.js` (testadas em `tests/`). A tela e a
+comunicação com a API ficam em `frontend/app.js`.
+
+## Endpoints (RestHeart)
+
+Os dados ficam no banco `restheart` (o padrão do docker), então a URL começa direto pela coleção.
 
 | Método | Rota | Descrição |
 |--------|------|-----------|
-| GET | `/crypto` | Lista criptomoedas |
-| GET | `/crypto/{id}` | Detalhes de uma moeda |
-| GET | `/crypto?sort=-marketCap` | Ranking por market cap |
-| GET | `/crypto?sort=-change24h` | Ranking por variação 24h |
-| POST | `/wallet` | Criar carteira simulada |
+| GET | `/cripto?pagesize=100` | Lista criptomoedas |
+| GET | `/cripto/{id}` | Detalhes de uma moeda |
 | GET | `/wallet/{id}` | Ver carteira |
-| POST | `/wallet/{id}/buy` | Comprar moeda |
-| POST | `/wallet/{id}/sell` | Vender moeda |
+| PUT | `/wallet/{id}` | Criar ou atualizar carteira |
+
+Comprar e vender são calculados no frontend e a carteira inteira é salva com PUT.
 
 ## Modelos de dados
-
-### Crypto
-```json
-{
-  "_id": "bitcoin",
-  "symbol": "BTC",
-  "name": "Bitcoin",
-  "marketCap": 1200000000000,
-  "price": 62000,
-  "change24h": 2.5,
-  "volume24h": 30000000000
-}
-```
 
 ### Wallet (simulada)
 ```json
 {
-  "_id": "wallet-1",
-  "balance": 10000,
+  "_id": "carteira-1a2b3c4d",
+  "balance": 9000,
   "holdings": [
-    { "cryptoId": "bitcoin", "amount": 0.1, "avgPrice": 60000 }
+    { "cryptoId": "bitcoin", "symbol": "BTC", "name": "Bitcoin", "amount": 0.01, "avgPrice": 100000 }
   ],
-  "createdAt": "2026-10-19T10:00:00Z"
+  "transactions": [
+    { "type": "buy", "cryptoId": "bitcoin", "symbol": "BTC", "amount": 0.01, "price": 100000, "total": 1000, "date": "2026-11-07T10:00:00Z" }
+  ],
+  "createdAt": "2026-11-07T10:00:00Z"
 }
 ```
 
