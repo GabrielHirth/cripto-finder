@@ -1,6 +1,8 @@
 // Regras da carteira virtual (simulada). Funções puras: não mexem na tela nem na API,
 // por isso dá para testar com `npm test`.
 
+import { idString } from './documento.js';
+
 export const SALDO_INICIAL = 10000;
 const LIMITE_HISTORICO = 50;
 const TOLERANCIA = 1e-10;
@@ -13,16 +15,24 @@ export const formatarQuantidade = (n) =>
   (n || 0).toLocaleString('pt-BR', { maximumFractionDigits: 8 });
 
 // O banco pode ter moedas no formato do CoinGecko (current_price, market_cap...)
-// ou no formato simples do README (price, marketCap...). Aqui juntamos os dois.
+// ou no formato simples (price, marketCap...). Aqui juntamos os dois.
+// `id` é o identificador da moeda (usado pela carteira); `docId` é o _id do documento no banco.
 export function normalizarMoeda(doc) {
+  const docId = idString(doc._id ?? doc.id);
   return {
-    id: doc.id ?? doc._id,
+    id: doc.id ?? docId,
+    docId,
     symbol: String(doc.symbol || '').toUpperCase(),
     name: doc.name || '',
     image: doc.image || '',
     price: Number(doc.current_price ?? doc.price ?? 0),
     marketCap: Number(doc.market_cap ?? doc.marketCap ?? 0),
     change24h: Number(doc.price_change_percentage_24h ?? doc.change24h ?? 0),
+    favorito: Boolean(doc.favorito),
+    nota: doc.nota === '' || doc.nota == null ? null : Number(doc.nota),
+    comentario: doc.comentario || '',
+    tags: Array.isArray(doc.tags) ? doc.tags : [],
+    rank: doc.market_cap_rank ?? null,
   };
 }
 

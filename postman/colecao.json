@@ -1,160 +1,281 @@
 {
   "info": {
-    "name": "Cripto Finder API",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "exporter": "Gabriel Hirth",
-    "date": "2026-10-19T00:00:00.000Z"
+    "name": "Cripto Finder - RESTHeart",
+    "description": "Rode as requisições na ordem (1 a 9). Autenticação Basic admin:secret definida na coleção. Pré-requisito: docker compose up -d.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
+  "auth": {
+    "type": "basic",
+    "basic": [
+      {
+        "key": "username",
+        "value": "admin",
+        "type": "string"
+      },
+      {
+        "key": "password",
+        "value": "secret",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "colecao",
+      "value": "cripto-finder"
+    },
+    {
+      "key": "id",
+      "value": "moeda-postman"
+    }
+  ],
   "item": [
     {
-      "name": "DELETE /cripto/{id}",
-      "request": {
-        "method": "DELETE",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{auth_token}}"
+      "name": "1. GET origem - CoinGecko (somente leitura)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));"
+            ]
           }
-        ],
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
         "url": {
-          "raw": "http://localhost:8080/cripto/{{id}}",
-          "host": [
-            "localhost"
-          ],
-          "port": "8080",
-          "path": [
-            "cripto",
-            "{{id}}"
-          ]
+          "raw": "https://api.coingecko.com/api/v3/coins/markets?vs_currency=brl&order=market_cap_desc&per_page=30&page=1&sparkline=false"
         },
-        "description": "Returns 204 No Content. Requires valid auth token."
+        "description": "API pública de origem. Só leitura. Não usa a autenticação do RESTHeart.",
+        "auth": {
+          "type": "noauth"
+        }
       }
     },
     {
-      "name": "PATCH /cripto/{id}",
-      "request": {
-        "method": "PATCH",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{auth_token}}"
+      "name": "2. PUT criar coleção",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 200 ou 201', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));"
+            ]
           }
-        ],
-        "url": {
-          "raw": "http://localhost:8080/cripto/{{id}}",
-          "host": [
-            "localhost"
-          ],
-          "port": "8080",
-          "path": [
-            "cripto",
-            "{{id}}"
-          ]
-        },
-        "description": "Returns 200 OK. Requires valid auth token."
-      }
-    },
-    {
-      "name": "PUT /cripto/{id}",
+        }
+      ],
       "request": {
         "method": "PUT",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{auth_token}}"
-          }
-        ],
+        "header": [],
         "url": {
-          "raw": "http://localhost:8080/cripto/{{id}}",
-          "host": [
-            "localhost"
-          ],
-          "port": "8080",
-          "path": [
-            "cripto",
-            "{{id}}"
-          ]
+          "raw": "{{baseUrl}}/{{colecao}}"
         },
-        "description": "Returns 200 OK. Requires valid auth token."
+        "description": "Cria a coleção (201). Se já existir, devolve 200."
       }
     },
     {
-      "name": "POST /cripto",
+      "name": "3. POST inserir documento",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 201', () => pm.response.to.have.status(201));",
+              "const loc = pm.response.headers.get('Location'); pm.test('Tem Location', () => pm.expect(loc).to.be.ok); if (loc) pm.collectionVariables.set('id', loc.split('/').pop());"
+            ]
+          }
+        }
+      ],
       "request": {
         "method": "POST",
         "header": [
           {
-            "key": "Location",
-            "value": "{{created_id}}"
+            "key": "Content-Type",
+            "value": "application/json"
           }
         ],
         "body": {
           "mode": "raw",
-          "raw": "",
-          "options": {}
-        },
-        "url": {
-          "raw": "http://localhost:8080/cripto",
-          "host": [
-            "localhost"
-          ],
-          "port": "8080",
-          "path": [
-            "cripto"
-          ]
-        }
-      }
-    },
-    {
-      "name": "GET /cripto",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{auth_token}}"
-          }
-        ],
-        "url": {
-          "raw": "http://localhost:8080/cripto?pagesize=100",
-          "host": [
-            "localhost"
-          ],
-          "port": "8080",
-          "path": [
-            "cripto"
-          ],
-          "query": [
-            {
-              "key": "pagesize",
-              "value": "100"
+          "raw": "{\n  \"id\": \"moeda-postman\",\n  \"symbol\": \"mpm\",\n  \"name\": \"Moeda Postman\",\n  \"image\": \"\",\n  \"current_price\": 12.5,\n  \"market_cap\": 1000000,\n  \"market_cap_rank\": null,\n  \"price_change_percentage_24h\": 1.5,\n  \"total_volume\": 0,\n  \"roi\": null,\n  \"favorito\": false,\n  \"nota\": null,\n  \"comentario\": \"criada pelo Postman\",\n  \"tags\": [\n    \"teste\"\n  ],\n  \"origem\": \"manual\",\n  \"criadoEm\": \"2026-11-08T10:00:00.000Z\",\n  \"atualizadoEm\": \"2026-11-08T10:00:00.000Z\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
             }
-          ]
+          }
         },
-        "description": "Returns 200 OK with list of cryptocurrencies. Requires valid auth token."
+        "url": {
+          "raw": "{{baseUrl}}/{{colecao}}"
+        },
+        "description": "Salva um documento novo. O id gerado vem no cabeçalho Location (o teste guarda em {{id}})."
       }
     },
     {
-      "name": "GET /crypto/{id}",
+      "name": "4. GET listar todos",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ],
       "request": {
         "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/{{colecao}}?pagesize=100"
+        },
+        "description": "Lista os documentos (até 100 por página)."
+      }
+    },
+    {
+      "name": "5. GET buscar por id",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/{{colecao}}/{{id}}"
+        },
+        "description": "Busca um documento. 404 se o id não existe."
+      }
+    },
+    {
+      "name": "6. PUT substituir documento",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
         "header": [
           {
-            "key": "Authorization",
-            "value": "Bearer {{auth_token}}"
+            "key": "Content-Type",
+            "value": "application/json"
           }
         ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"id\": \"moeda-postman\",\n  \"symbol\": \"mpm\",\n  \"name\": \"Moeda Postman (editada)\",\n  \"image\": \"\",\n  \"current_price\": 20,\n  \"market_cap\": 1000000,\n  \"market_cap_rank\": null,\n  \"price_change_percentage_24h\": 1.5,\n  \"total_volume\": 0,\n  \"roi\": null,\n  \"favorito\": false,\n  \"nota\": null,\n  \"comentario\": \"criada pelo Postman\",\n  \"tags\": [\n    \"teste\"\n  ],\n  \"origem\": \"manual\",\n  \"criadoEm\": \"2026-11-08T10:00:00.000Z\",\n  \"atualizadoEm\": \"2026-11-08T11:00:00.000Z\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
         "url": {
-          "raw": "http://localhost:8080/crypto/{{id}}",
-          "host": [
-            "localhost"
-          ],
-          "port": "8080",
-          "path": [
-            "crypto",
-            "{{id}}"
-          ]
+          "raw": "{{baseUrl}}/{{colecao}}/{{id}}"
+        },
+        "description": "Regrava o documento inteiro (sem _id no corpo)."
+      }
+    },
+    {
+      "name": "7. PATCH alterar um campo",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));"
+            ]
+          }
         }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"favorito\": true,\n  \"atualizadoEm\": \"2026-11-08T12:00:00.000Z\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/{{colecao}}/{{id}}"
+        },
+        "description": "Altera só os campos enviados."
+      }
+    },
+    {
+      "name": "8. DELETE excluir",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 204', () => pm.response.to.have.status(204));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/{{colecao}}/{{id}}"
+        },
+        "description": "Remove o documento (204 No Content)."
+      }
+    },
+    {
+      "name": "9. GET após excluir (esperado 404)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 404', () => pm.response.to.have.status(404));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/{{colecao}}/{{id}}"
+        },
+        "description": "Prova que o documento foi removido."
       }
     }
   ]

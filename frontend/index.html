@@ -5,27 +5,120 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cripto Finder</title>
   <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.js"></script>
 </head>
 <body>
   <h1>Cripto Finder</h1>
 
+  <!-- Painel: indicadores, gráficos, ranking e agrupamento (recalculados a cada alteração) -->
+  <section class="panel" aria-labelledby="titulo-painel">
+    <h2 id="titulo-painel" class="section-title">Painel</h2>
+    <div id="indicators" class="stats"></div>
+    <div class="charts">
+      <div class="chart-card">
+        <h3>Top 10 por valor de mercado (R$ bilhões)</h3>
+        <div class="chart-box"><canvas id="chart-bar" aria-label="Gráfico de barras: top 10 por valor de mercado" role="img"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <h3>Moedas por tendência em 24h</h3>
+        <div class="chart-box"><canvas id="chart-pie" aria-label="Gráfico de pizza: moedas por tendência em 24 horas" role="img"></canvas></div>
+      </div>
+    </div>
+    <p id="charts-fallback" class="muted" hidden>Os gráficos não carregaram (Chart.js precisa de internet). Os números acima continuam valendo.</p>
+    <div class="rank-grid">
+      <div>
+        <h3>Ranking: 5 maiores altas em 24h</h3>
+        <ol id="ranking" class="ranking"></ol>
+      </div>
+      <div>
+        <h3>Agrupamento por tendência</h3>
+        <ul id="groups" class="ranking groups"></ul>
+      </div>
+    </div>
+  </section>
+
   <section id="wallet" class="wallet" aria-live="polite"></section>
 
   <h2 class="section-title">Mercado</h2>
+  <section class="toolbar">
+    <button type="button" id="btn-new" class="btn btn-primary">+ Nova moeda</button>
+    <button type="button" id="btn-import" class="btn btn-ghost">Importar / atualizar da CoinGecko</button>
+  </section>
   <section class="controls">
-    <input type="text" id="search" placeholder="Buscar por nome ou símbolo" />
-    <select id="filter-marketcap">
-      <option value="all">Cap. de mercado</option>
-      <option value="gt-1b">&gt; 1 B</option>
-      <option value="lt-1b">&lt; 1 B</option>
+    <input type="text" id="search" placeholder="Buscar por nome ou símbolo" aria-label="Buscar por nome ou símbolo" />
+    <select id="filter-group" aria-label="Filtrar por grupo">
+      <option value="all">Todas as moedas</option>
+      <option value="fav">Só favoritas</option>
+      <option value="top10">Top 10 por valor de mercado</option>
     </select>
-    <select id="filter-change">
+    <select id="filter-change" aria-label="Filtrar por variação em 24 horas">
       <option value="all">Variação 24h</option>
       <option value="gt-0">Positiva</option>
       <option value="lt-0">Negativa</option>
     </select>
   </section>
   <ul id="crypto-list" class="list"></ul>
+
+  <!-- Formulário de criar (POST) e editar (PUT) -->
+  <dialog id="coin-dialog" class="dialog">
+    <form id="coin-form" novalidate>
+      <h3 id="coin-title"></h3>
+      <label for="f-name">Nome</label>
+      <input id="f-name" name="name" type="text" maxlength="60" autocomplete="off" />
+      <span class="field-error" data-erro="name"></span>
+
+      <div class="row">
+        <div>
+          <label for="f-symbol">Símbolo</label>
+          <input id="f-symbol" name="symbol" type="text" maxlength="10" autocomplete="off" />
+          <span class="field-error" data-erro="symbol"></span>
+        </div>
+        <div>
+          <label for="f-price">Preço (R$)</label>
+          <input id="f-price" name="price" type="number" step="any" min="0" inputmode="decimal" />
+          <span class="field-error" data-erro="price"></span>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="f-marketcap">Valor de mercado (R$)</label>
+          <input id="f-marketcap" name="marketCap" type="number" step="any" min="0" inputmode="decimal" />
+          <span class="field-error" data-erro="marketCap"></span>
+        </div>
+        <div>
+          <label for="f-change">Variação 24h (%)</label>
+          <input id="f-change" name="change24h" type="number" step="any" inputmode="decimal" />
+          <span class="field-error" data-erro="change24h"></span>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="f-nota">Nota (0 a 10)</label>
+          <input id="f-nota" name="nota" type="number" step="1" min="0" max="10" inputmode="numeric" />
+          <span class="field-error" data-erro="nota"></span>
+        </div>
+        <div>
+          <label for="f-tags">Tags (separadas por vírgula)</label>
+          <input id="f-tags" name="tags" type="text" autocomplete="off" placeholder="ex.: longo prazo, defi" />
+          <span class="field-error" data-erro="tags"></span>
+        </div>
+      </div>
+
+      <label for="f-comentario">Comentário</label>
+      <textarea id="f-comentario" name="comentario" rows="2" maxlength="300"></textarea>
+      <span class="field-error" data-erro="comentario"></span>
+
+      <label class="check"><input id="f-favorito" name="favorito" type="checkbox" /> Favorita</label>
+
+      <p id="coin-error" class="error-inline" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" id="coin-cancel" class="btn btn-ghost">Cancelar</button>
+        <button type="submit" id="coin-save" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="trade-dialog" class="dialog">
     <form id="trade-form" novalidate>
