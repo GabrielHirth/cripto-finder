@@ -1,18 +1,17 @@
 {
   "name": "cripto-finder",
   "version": "1.0.0",
-  "description": "Cripto Finder - API e Frontend",
-  "main": "app.js",
+  "description": "Cripto Finder - CoinGecko + MongoDB/RESTHeart (Docker) + frontend com painel",
   "type": "module",
   "scripts": {
-    "start": "http-server -p 3000 ./frontend -o",
+    "start": "http-server -p 3000 ./frontend",
     "import": "node scripts/import-cripto.js",
-    "test": "node --test tests/carteira.test.js"
+    "test": "node --test tests/wallet-logic.test.js tests/documento.test.js tests/api.test.js"
   },
   "devDependencies": {
     "http-server": "^14.1.1"
   },
-  "keywords": ["cripto", "api", "crypto"],
+  "keywords": ["cripto", "api", "crypto", "mongodb", "restheart"],
   "author": "Gabriel Hirth",
   "license": "MIT"
 }

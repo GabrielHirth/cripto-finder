@@ -1,428 +1,647 @@
 import {
-  SALDO_INICIAL, ErroDeCarteira, mostrarReais, mostrarQuantidade, ajustarMoeda,
-  criarCarteira, comprar, vender, calcularResumo,
-} from './carteira.js';
+  SALDO_INICIAL, ErroCarteira, formatarReais, formatarQuantidade, normalizarMoeda,
+  novaCarteira, comprar, vender, resumir,
+} from './wallet-logic.js';
+import * as api from './api.js';
+import {
+  validarFormulario, montarNovo, montarSubstituicao, valoresDoDocumento,
+} from './documento.js';
+import { calcularIndicadores, rankingPor, agruparPorTendencia } from './dashboard-logic.js';
 
-const API_BASE = 'http://localhost:8080';
-const URL_CRIPTO = `${API_BASE}/cripto`;
-const URL_WALLET = `${API_BASE}/wallet`;
-const CHAVE_CARTEIRA = 'cripto-finder:wallet-id';
-
-const AUTH_BASICA = 'Basic ' + btoa('admin:secret');
+const CHAVE_LOCAL = 'cripto-finder:wallet-id';
 
 // Estado
-let listaMoedas = [];
-let mapaMoedas = new Map();
+let moedas = [];
+let moedasPorId = new Map();
 let carteira = null;
 let isLoading = false;
-let estaSalvando = false;
-let operacao = null;
+let salvando = false;
+let negociacao = null; // { modo: 'buy' | 'sell', moeda, tudo }
+let formulario = null; // { modo: 'create' | 'edit', docId, original }
 
 // Elementos da UI
-const listEl = document.getElementById('crypto-list');
-const carteiraEl = document.getElementById('wallet');
-const searchInput = document.getElementById('search');
-const filterMarketCap = document.getElementById('filter-marketcap');
-const filterChange = document.getElementById('filter-change');
-const dialogEl = document.getElementById('trade-dialog');
-const formEl = document.getElementById('trade-form');
-const tituloEl = document.getElementById('trade-title');
-const infoEl = document.getElementById('trade-info');
-const rotuloEl = document.getElementById('trade-label');
-const valorInput = document.getElementById('trade-value');
-const atalhosEl = document.getElementById('trade-quick');
-const previaEl = document.getElementById('trade-preview');
-const erroEl = document.getElementById('trade-error');
-const confirmarBtn = document.getElementById('trade-confirm');
-const avisoEl = document.getElementById('toast');
+const $ = (id) => document.getElementById(id);
+const listEl = $('crypto-list');
+const walletEl = $('wallet');
+const searchInput = $('search');
+const filterGroup = $('filter-group');
+const filterChange = $('filter-change');
+const dialog = $('trade-dialog');
+const form = $('trade-form');
+const tradeTitle = $('trade-title');
+const tradeInfo = $('trade-info');
+const tradeLabel = $('trade-label');
+const tradeValue = $('trade-value');
+const tradeQuick = $('trade-quick');
+const tradePreview = $('trade-preview');
+const tradeError = $('trade-error');
+const tradeConfirm = $('trade-confirm');
+const toastEl = $('toast');
+const coinDialog = $('coin-dialog');
+const coinForm = $('coin-form');
+const coinSave = $('coin-save');
+const coinError = $('coin-error');
+const btnNew = $('btn-new');
+const btnImport = $('btn-import');
 
-function criarElemento(tag, className, text) {
+// ---------- Utilidades de tela ----------
+function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
 }
 
-function esvaziar(node) {
+function limpar(node) {
   while (node.firstChild) node.removeChild(node.firstChild);
 }
 
-let timerAviso;
-function mostrarAviso(mensagem, erro = false) {
-  avisoEl.textContent = mensagem;
-  avisoEl.className = erro ? 'toast toast-error' : 'toast';
-  avisoEl.hidden = false;
-  clearTimeout(timerAviso);
-  timerAviso = setTimeout(() => { avisoEl.hidden = true; }, 5000);
+let toastTimer;
+function avisar(mensagem, erro = false, ms = 5000) {
+  toastEl.textContent = mensagem;
+  toastEl.className = erro ? 'toast toast-error' : 'toast';
+  toastEl.hidden = false;
+  clearTimeout(toastTimer);
+  if (ms > 0) toastTimer = setTimeout(() => { toastEl.hidden = true; }, ms);
 }
 
-function criarImagem(url, alt) {
+const textoDoErro = (err) =>
+  (err instanceof ErroCarteira ? err.message : 'Algo deu errado. Tenta de novo.');
+
+function moedaImg(url, alt) {
   if (!url) return null;
-  const img = criarElemento('img', 'coin-img');
+  const img = el('img', 'coin-img');
   img.src = url;
   img.alt = alt;
   img.loading = 'lazy';
   return img;
 }
 
-const corResultado = (n) => (n >= 0 ? 'positive-text' : 'negative-text');
-const sinalDe = (n) => (n >= 0 ? '+' : '−');
-const formatarResultado = (lucro, pct) =>
-  `${sinalDe(lucro)} ${mostrarReais(Math.abs(lucro))} (${sinalDe(pct)}${Math.abs(pct).toFixed(2).replace('.', ',')}%)`;
+const classeResultado = (n) => (n >= 0 ? 'positive-text' : 'negative-text');
+const sinal = (n) => (n >= 0 ? '+' : '−');
+const textoResultado = (lucro, pct) =>
+  `${sinal(lucro)} ${formatarReais(Math.abs(lucro))} (${sinal(pct)}${Math.abs(pct).toFixed(2).replace('.', ',')}%)`;
+const pct = (n) => `${n.toFixed(2).replace('.', ',')}%`;
+const bilhoes = (n) => `R$ ${(n / 1e9).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} bi`;
 
-const MSG_SEM_SERVIDOR =
-  'Não consegui falar com o servidor. Confere se o Docker está rodando (docker-compose up -d) e tenta de novo.';
-
-async function fazerRequisicao(url, opcoes) {
-  try {
-    const headers = { ...(opcoes?.headers || {}), Authorization: AUTH_BASICA };
-    return await fetch(url, { ...opcoes, headers });
-  } catch {
-    throw new ErroDeCarteira(MSG_SEM_SERVIDOR);
-  }
+// ---------- Dados ----------
+async function carregarMoedas() {
+  const docs = await api.listarMoedas();
+  moedas = docs.map(normalizarMoeda);
+  moedasPorId = new Map(moedas.map((m) => [m.id, m]));
 }
 
-async function buscarMoedas() {
-  const r = await fazerRequisicao(`${URL_CRIPTO}?pagesize=100`);
-  if (r.status === 401) throw new ErroDeCarteira('O servidor recusou o acesso (erro 401). Confere o usuário e a senha do RestHeart.');
-  if (!r.ok) throw new ErroDeCarteira('Não consegui carregar as moedas. Será que você já importou os dados? Rode "npm run import".');
-  const dados = await r.json();
-  listaMoedas = dados.map(ajustarMoeda);
-  mapaMoedas = new Map(listaMoedas.map((m) => [m.id, m]));
+// Depois de qualquer POST, PUT, PATCH ou DELETE: lê de novo do banco e redesenha TUDO,
+// por isso os indicadores e gráficos se atualizam sozinhos.
+async function recarregar() {
+  await carregarMoedas();
+  renderTudo();
 }
 
-async function criarColecao() {
-  for (let tentativa = 0; tentativa < 3; tentativa++) {
-    const r = await fazerRequisicao(URL_WALLET, { method: 'PUT' });
-    if (r.ok) return;
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
-}
-
-async function gravarCarteira(c) {
-  const r = await fazerRequisicao(URL_WALLET, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(c),
-  });
-  if (!r.ok) throw new ErroDeCarteira('Não consegui salvar sua carteira agora. Nada foi alterado, tenta de novo em instantes.');
-}
-
-async function carregarCarteira() {
-  let id = localStorage.getItem(CHAVE_CARTEIRA);
+async function abrirCarteira() {
+  const id = localStorage.getItem(CHAVE_LOCAL);
   if (id) {
-    const r = await fazerRequisicao(`${URL_WALLET}/${encodeURIComponent(id)}`);
-    if (r.ok) {
-      carteira = await r.json();
+    const existente = await api.lerCarteira(id);
+    if (existente) {
+      carteira = existente;
       return false;
     }
   }
-  id = `carteira-${(globalThis.crypto?.randomUUID?.() ?? String(Date.now())).slice(0, 8)}`;
-  await criarColecao();
-  const carteiraNova = criarCarteira(id);
-  await gravarCarteira(carteiraNova);
-  localStorage.setItem(CHAVE_CARTEIRA, id);
-  carteira = carteiraNova;
+  // Primeira visita (ou carteira apagada): cria uma nova
+  const novoId = `carteira-${(globalThis.crypto?.randomUUID?.() ?? String(Date.now())).slice(0, 8)}`;
+  await api.garantirEstrutura();
+  const nova = novaCarteira(novoId);
+  await api.salvarCarteira(nova);
+  localStorage.setItem(CHAVE_LOCAL, novoId);
+  carteira = nova;
   return true;
 }
 
-function renderWallet() {
-  esvaziar(carteiraEl);
-  if (!carteira) return;
-  const r = calcularResumo(carteira, mapaMoedas);
+const salvarCarteira = api.salvarCarteira;
 
-  const cabecalho = criarElemento('div', 'wallet-top');
-  const blocoTitulo = criarElemento('div');
-  blocoTitulo.appendChild(criarElemento('h2', null, 'Minha carteira'));
-  blocoTitulo.appendChild(criarElemento('p', 'muted', 'Dinheiro de mentirinha: aqui você treina sem arriscar nada.'));
-  const resetBtn = criarElemento('button', 'btn btn-ghost btn-small', 'Recomeçar do zero');
-  resetBtn.type = 'button';
-  resetBtn.addEventListener('click', resetarCarteira);
-  cabecalho.append(blocoTitulo, resetBtn);
-  carteiraEl.appendChild(cabecalho);
+function renderTudo() {
+  renderPainel();
+  renderCarteira();
+  renderList();
+}
 
-  const statsEl = criarElemento('div', 'stats');
-  const criarStat = (rotulo, valor, classe) => {
-    const s = criarElemento('div', 'stat');
-    s.appendChild(criarElemento('div', 'label', rotulo));
-    s.appendChild(criarElemento('div', `value ${classe || ''}`, valor));
-    return s;
+// ---------- Painel ----------
+let graficoBarras = null;
+let graficoPizza = null;
+const CORES = ['#146c43', '#75b798', '#ea868f', '#b02a37'];
+
+function renderPainel() {
+  const ind = calcularIndicadores(moedas);
+  const box = $('indicators');
+  limpar(box);
+  const card = (rotulo, valor, classe) => {
+    const c = el('div', 'stat');
+    c.appendChild(el('div', 'label', rotulo));
+    c.appendChild(el('div', `value ${classe || ''}`, valor));
+    return c;
   };
-  statsEl.append(
-    criarStat('Disponível para comprar', mostrarReais(r.saldo)),
-    criarStat('Valor das suas moedas', mostrarReais(r.valorAtual)),
-    criarStat('Total na carteira', mostrarReais(r.total)),
+  box.append(
+    card('Moedas no banco', String(ind.total)),
+    card('Valor de mercado somado', moedas.length ? bilhoes(ind.capTotal) : '—'),
+    card('Variação média 24h', moedas.length ? pct(ind.mediaVariacao) : '—', moedas.length ? classeResultado(ind.mediaVariacao) : ''),
+    card('Maior alta 24h', ind.maiorAlta ? `${ind.maiorAlta.nome} (${pct(ind.maiorAlta.valor)})` : '—'),
+    card('Moedas em alta', moedas.length ? `${ind.pctEmAlta.toFixed(0)}%` : '—'),
+    card('Favoritas', String(ind.favoritas)),
+    card('Nota média', ind.notaMedia == null ? '—' : ind.notaMedia.toFixed(1).replace('.', ',')),
   );
-  if (r.investido > 0) {
-    statsEl.appendChild(criarStat('Ganho ou perda', formatarResultado(r.lucro, r.lucroPct), corResultado(r.lucro)));
-  }
-  carteiraEl.appendChild(statsEl);
 
-  if (r.posicoes.length === 0) {
-    carteiraEl.appendChild(criarElemento('p', 'empty', 'Você ainda não tem nenhuma moeda. Escolha uma na lista abaixo e clique em "Comprar" para começar.'));
+  // Ranking: top 5 maiores altas
+  const rk = $('ranking');
+  limpar(rk);
+  if (moedas.length === 0) rk.appendChild(el('li', 'muted', 'Sem dados ainda.'));
+  rankingPor(moedas, 'change24h', 5).forEach((m) => {
+    const li = el('li');
+    li.appendChild(el('span', null, `${m.name} (${m.symbol})`));
+    li.appendChild(el('strong', classeResultado(m.change24h), `${m.change24h >= 0 ? '+' : ''}${pct(m.change24h)}`));
+    rk.appendChild(li);
+  });
+
+  // Agrupamento por categoria
+  const grupos = agruparPorTendencia(moedas);
+  const gl = $('groups');
+  limpar(gl);
+  grupos.forEach((g) => {
+    const li = el('li');
+    li.appendChild(el('span', null, g.rotulo));
+    li.appendChild(el('strong', null, String(g.qtd)));
+    gl.appendChild(li);
+  });
+
+  desenharGraficos(grupos);
+}
+
+function desenharGraficos(grupos) {
+  if (typeof Chart === 'undefined') {
+    $('charts-fallback').hidden = false;
+    return;
+  }
+  const top = rankingPor(moedas, 'marketCap', 10);
+  const barras = {
+    labels: top.map((m) => m.symbol),
+    datasets: [{
+      label: 'Valor de mercado (R$ bilhões)',
+      data: top.map((m) => Number((m.marketCap / 1e9).toFixed(1))),
+      backgroundColor: '#0a58ca',
+    }],
+  };
+  const pizza = {
+    labels: grupos.map((g) => g.rotulo),
+    datasets: [{ data: grupos.map((g) => g.qtd), backgroundColor: CORES }],
+  };
+  const comum = { responsive: true, maintainAspectRatio: false };
+
+  if (graficoBarras) {
+    graficoBarras.data = barras;
+    graficoBarras.update();
   } else {
-    const ul = criarElemento('ul', 'holdings');
-    r.posicoes.forEach((p) => {
-      const li = criarElemento('li', 'holding');
-      const img = criarImagem(p.image, p.name);
-      if (img) li.appendChild(img);
-      const infoPosicao = criarElemento('div', 'info');
-      infoPosicao.appendChild(criarElemento('strong', null, `${p.name} (${p.symbol})`));
-      infoPosicao.appendChild(criarElemento('span', null, `${mostrarQuantidade(p.amount)} ${p.symbol} · preço médio ${mostrarReais(p.avgPrice)}`));
-      const resultadoEl = criarElemento('div', 'result');
-      resultadoEl.appendChild(criarElemento('div', null, mostrarReais(p.valor)));
-      resultadoEl.appendChild(criarElemento('div', corResultado(p.lucro), formatarResultado(p.lucro, p.lucroPct)));
-      const vendBtn = criarElemento('button', 'btn btn-sell btn-small', 'Vender');
-      vendBtn.type = 'button';
-      vendBtn.addEventListener('click', () => abrirOperacao('sell', p.cryptoId));
-      li.append(infoPosicao, resultadoEl, vendBtn);
-      ul.appendChild(li);
+    graficoBarras = new Chart($('chart-bar'), {
+      type: 'bar', data: barras, options: { ...comum, plugins: { legend: { display: false } } },
     });
-    carteiraEl.appendChild(ul);
   }
-
-  if (carteira.transactions.length > 0) {
-    const detalhes = criarElemento('details', 'history');
-    detalhes.appendChild(criarElemento('summary', null, `Histórico (${carteira.transactions.length})`));
-    const ul = criarElemento('ul');
-    carteira.transactions.forEach((t) => {
-      const li = criarElemento('li');
-      const verbo = t.type === 'buy' ? 'Comprou' : 'Vendeu';
-      li.appendChild(criarElemento('span', null, `${verbo} ${mostrarQuantidade(t.amount)} ${t.symbol} por ${mostrarReais(t.total)}`));
-      li.appendChild(criarElemento('span', 'muted', new Date(t.date).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })));
-      ul.appendChild(li);
+  if (graficoPizza) {
+    graficoPizza.data = pizza;
+    graficoPizza.update();
+  } else {
+    graficoPizza = new Chart($('chart-pie'), {
+      type: 'pie', data: pizza, options: { ...comum, plugins: { legend: { position: 'bottom' } } },
     });
-    detalhes.appendChild(ul);
-    carteiraEl.appendChild(detalhes);
   }
 }
 
-// Renderiza lista filtrada
-function renderList() {
-  const search = searchInput.value.toLowerCase();
-  const marketCapFilter = filterMarketCap.value;
-  const changeFilter = filterChange.value;
+// ---------- Renderização da carteira ----------
+function renderCarteira() {
+  limpar(walletEl);
+  if (!carteira) return;
+  const r = resumir(carteira, moedasPorId);
 
-  const filtered = listaMoedas.filter((item) => {
-    // Busca por nome ou símbolo (converte campos para string para evitar erros se undefined)
-    const matchesSearch = item.name.toLowerCase().includes(search) || item.symbol.toLowerCase().includes(search);
-    if (!matchesSearch) return false;
-    // Filtro market cap
-    if (marketCapFilter === 'gt-1b' && item.marketCap <= 1000000000) return false;
-    if (marketCapFilter === 'lt-1b' && item.marketCap >= 1000000000) return false;
-    // Filtro variação 24h
+  const topo = el('div', 'wallet-top');
+  const titulo = el('div');
+  titulo.appendChild(el('h2', null, 'Minha carteira'));
+  titulo.appendChild(el('p', 'muted', 'Dinheiro de mentirinha: aqui você treina sem arriscar nada.'));
+  const reset = el('button', 'btn btn-ghost btn-small', 'Recomeçar do zero');
+  reset.type = 'button';
+  reset.addEventListener('click', recomecar);
+  topo.append(titulo, reset);
+  walletEl.appendChild(topo);
+
+  const stats = el('div', 'stats');
+  const stat = (rotulo, valor, classe) => {
+    const s = el('div', 'stat');
+    s.appendChild(el('div', 'label', rotulo));
+    s.appendChild(el('div', `value ${classe || ''}`, valor));
+    return s;
+  };
+  stats.append(
+    stat('Disponível para comprar', formatarReais(r.saldo)),
+    stat('Valor das suas moedas', formatarReais(r.valorAtual)),
+    stat('Total na carteira', formatarReais(r.total)),
+  );
+  if (r.investido > 0) {
+    stats.appendChild(stat('Ganho ou perda', textoResultado(r.lucro, r.lucroPct), classeResultado(r.lucro)));
+  }
+  walletEl.appendChild(stats);
+
+  if (r.posicoes.length === 0) {
+    walletEl.appendChild(el('p', 'empty', 'Você ainda não tem nenhuma moeda. Escolha uma na lista abaixo e clique em "Comprar" para começar.'));
+  } else {
+    const ul = el('ul', 'holdings');
+    r.posicoes.forEach((p) => {
+      const li = el('li', 'holding');
+      const img = moedaImg(p.image, p.name);
+      if (img) li.appendChild(img);
+      const info = el('div', 'info');
+      info.appendChild(el('strong', null, `${p.name} (${p.symbol})`));
+      info.appendChild(el('span', null, `${formatarQuantidade(p.amount)} ${p.symbol} · preço médio ${formatarReais(p.avgPrice)}`));
+      const res = el('div', 'result');
+      res.appendChild(el('div', null, formatarReais(p.valor)));
+      res.appendChild(el('div', classeResultado(p.lucro), textoResultado(p.lucro, p.lucroPct)));
+      const vend = el('button', 'btn btn-sell btn-small', 'Vender');
+      vend.type = 'button';
+      vend.addEventListener('click', () => abrirNegociacao('sell', p.cryptoId));
+      li.append(info, res, vend);
+      ul.appendChild(li);
+    });
+    walletEl.appendChild(ul);
+  }
+
+  if (carteira.transactions.length > 0) {
+    const det = el('details', 'history');
+    det.appendChild(el('summary', null, `Histórico (${carteira.transactions.length})`));
+    const ul = el('ul');
+    carteira.transactions.forEach((t) => {
+      const li = el('li');
+      const verbo = t.type === 'buy' ? 'Comprou' : 'Vendeu';
+      li.appendChild(el('span', null, `${verbo} ${formatarQuantidade(t.amount)} ${t.symbol} por ${formatarReais(t.total)}`));
+      li.appendChild(el('span', 'muted', new Date(t.date).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })));
+      ul.appendChild(li);
+    });
+    det.appendChild(ul);
+    walletEl.appendChild(det);
+  }
+}
+
+// ---------- Lista de moedas ----------
+function renderList() {
+  const search = searchInput.value.trim().toLowerCase();
+  const grupo = filterGroup.value;
+  const changeFilter = filterChange.value;
+  const top10 = new Set(rankingPor(moedas, 'marketCap', 10).map((m) => m.id));
+
+  const filtered = moedas.filter((item) => {
+    if (search && !item.name.toLowerCase().includes(search) && !item.symbol.toLowerCase().includes(search)) return false;
+    if (grupo === 'fav' && !item.favorito) return false;
+    if (grupo === 'top10' && !top10.has(item.id)) return false;
     if (changeFilter === 'gt-0' && item.change24h <= 0) return false;
     if (changeFilter === 'lt-0' && item.change24h >= 0) return false;
     return true;
   });
 
-  // Limpa lista atual
-  esvaziar(listEl);
+  limpar(listEl);
+  if (moedas.length === 0) {
+    listEl.appendChild(el('li', 'loading', 'Ainda não há moedas no banco. Use "Importar da CoinGecko" ou "+ Nova moeda".'));
+    return;
+  }
   if (filtered.length === 0) {
-    listEl.appendChild(criarElemento('li', 'loading', 'Não encontramos nenhuma moeda com esses filtros. Tente limpar a busca.'));
+    listEl.appendChild(el('li', 'loading', 'Não encontramos nenhuma moeda com esses filtros. Tente limpar a busca.'));
     return;
   }
 
+  const botao = (rotulo, classe, aoClicar, titulo) => {
+    const b = el('button', `btn ${classe} btn-small`, rotulo);
+    b.type = 'button';
+    if (titulo) b.title = titulo;
+    b.addEventListener('click', aoClicar);
+    return b;
+  };
+
   filtered.forEach((item) => {
-    const li = criarElemento('li', 'item');
-    const cabecalho = criarElemento('div', 'item-head');
-    const img = criarImagem(item.image, item.name);
-    if (img) cabecalho.appendChild(img);
+    const li = el('li', 'item');
+    const topo = el('div', 'item-head');
+    const img = moedaImg(item.image, item.name);
+    if (img) topo.appendChild(img);
 
-    const blocoInfo = criarElemento('div');
-    // Título (Símbolo – Nome)
-    const h2 = criarElemento('h2');
-    h2.appendChild(criarElemento('span', 'symbol', item.symbol));
-    h2.appendChild(document.createTextNode(` – ${item.name}`));
-    blocoInfo.appendChild(h2);
-    // Preço
-    blocoInfo.appendChild(criarElemento('div', 'price', mostrarReais(item.price)));
-    // Variação 24h
+    const bloco = el('div', 'item-body');
+    const h2 = el('h2');
+    h2.appendChild(el('span', 'symbol', item.symbol));
+    h2.appendChild(document.createTextNode(` – ${item.name}${item.favorito ? ' ★' : ''}`));
+    bloco.appendChild(h2);
+    bloco.appendChild(el('div', 'price', formatarReais(item.price)));
     const positivo = item.change24h >= 0;
-    blocoInfo.appendChild(criarElemento(
-      'div',
-      `change ${positivo ? 'positive' : 'negative'}`,
-      `${positivo ? '+' : ''}${item.change24h.toFixed(2).replace('.', ',')}% em 24h`
-    ));
-    // Market Cap
-    blocoInfo.appendChild(criarElemento('div', 'marketcap', `Cap. de mercado: ${mostrarReais(item.marketCap)}`));
-    cabecalho.appendChild(blocoInfo);
-    li.appendChild(cabecalho);
-
-    const acoesEl = criarElemento('div', 'item-actions');
-    const comprarBtn = criarElemento('button', 'btn btn-primary btn-small', 'Comprar');
-    comprarBtn.type = 'button';
-    comprarBtn.addEventListener('click', () => abrirOperacao('buy', item.id));
-    acoesEl.appendChild(comprarBtn);
-    if (carteira?.holdings.some((h) => h.cryptoId === item.id)) {
-      const venderBtn = criarElemento('button', 'btn btn-sell btn-small', 'Vender');
-      venderBtn.type = 'button';
-      venderBtn.addEventListener('click', () => abrirOperacao('sell', item.id));
-      acoesEl.appendChild(venderBtn);
+    bloco.appendChild(el('div', `change ${positivo ? 'positive' : 'negative'}`, `${positivo ? '+' : ''}${pct(item.change24h)} em 24h`));
+    bloco.appendChild(el('div', 'marketcap', `Cap. de mercado: ${formatarReais(item.marketCap)}`));
+    if (item.nota != null) bloco.appendChild(el('div', 'marketcap', `Minha nota: ${item.nota}/10`));
+    if (item.comentario) bloco.appendChild(el('div', 'comment', item.comentario));
+    if (item.tags.length) {
+      const tags = el('div', 'tags');
+      item.tags.forEach((t) => tags.appendChild(el('span', 'tag', t)));
+      bloco.appendChild(tags);
     }
-    li.appendChild(acoesEl);
+    topo.appendChild(bloco);
+    li.appendChild(topo);
+
+    const acoes = el('div', 'item-actions');
+    acoes.appendChild(botao('Comprar', 'btn-primary', () => abrirNegociacao('buy', item.id)));
+    if (carteira?.holdings.some((h) => h.cryptoId === item.id)) {
+      acoes.appendChild(botao('Vender', 'btn-sell', () => abrirNegociacao('sell', item.id)));
+    }
+    acoes.appendChild(botao(item.favorito ? '★ Favorita' : '☆ Favoritar', 'btn-ghost', () => alternarFavorito(item)));
+    acoes.appendChild(botao('Editar', 'btn-ghost', () => editar(item)));
+    acoes.appendChild(botao('Excluir', 'btn-sell', () => excluir(item)));
+    li.appendChild(acoes);
     listEl.appendChild(li);
   });
 }
 
-function buscarPosicao(id) {
+// ---------- CRUD das moedas ----------
+// PATCH: muda só o campo favorito (e a data de atualização).
+async function alternarFavorito(m) {
+  try {
+    const novo = !m.favorito;
+    const status = await api.alterarMoeda(m.docId, { favorito: novo, atualizadoEm: new Date().toISOString() });
+    await recarregar();
+    avisar(`${m.name} ${novo ? 'marcada como favorita' : 'removida dos favoritos'} (PATCH ${status}).`);
+  } catch (err) {
+    avisar(textoDoErro(err), true);
+  }
+}
+
+// DELETE com confirmação.
+async function excluir(m) {
+  if (carteira?.holdings.some((h) => h.cryptoId === m.id)) {
+    avisar(`Você tem ${m.name} na carteira. Venda tudo antes de excluir a moeda.`, true);
+    return;
+  }
+  if (!confirm(`Excluir ${m.name} do banco? Isso não pode ser desfeito.`)) return;
+  try {
+    const status = await api.excluirMoeda(m.docId);
+    await recarregar();
+    avisar(`${m.name} excluída (DELETE ${status}).`);
+  } catch (err) {
+    avisar(textoDoErro(err), true);
+  }
+}
+
+// GET por id e depois PUT: abre o formulário de edição com o documento atual do banco.
+async function editar(m) {
+  try {
+    const doc = await api.buscarMoeda(m.docId);
+    abrirFormulario('edit', doc, m.docId);
+  } catch (err) {
+    avisar(textoDoErro(err), true);
+    if (err.status === 404) recarregar().catch(() => {});
+  }
+}
+
+const CAMPOS = [
+  ['name', 'f-name'], ['symbol', 'f-symbol'], ['price', 'f-price'], ['marketCap', 'f-marketcap'],
+  ['change24h', 'f-change'], ['nota', 'f-nota'], ['tags', 'f-tags'], ['comentario', 'f-comentario'],
+];
+
+function abrirFormulario(modo, doc, docId) {
+  formulario = { modo, docId, original: doc };
+  const v = modo === 'edit'
+    ? valoresDoDocumento(doc)
+    : { name: '', symbol: '', price: '', marketCap: '', change24h: 0, nota: '', comentario: '', tags: '', favorito: false };
+  CAMPOS.forEach(([chave, id]) => { $(id).value = v[chave]; });
+  $('f-favorito').checked = v.favorito;
+  $('coin-title').textContent = modo === 'edit' ? `Editar ${doc.name}` : 'Nova moeda';
+  mostrarErros({});
+  coinError.textContent = '';
+  coinDialog.showModal();
+  $('f-name').focus();
+}
+
+function mostrarErros(erros) {
+  coinForm.querySelectorAll('[data-erro]').forEach((s) => { s.textContent = erros[s.dataset.erro] || ''; });
+}
+
+function lerFormulario() {
+  const v = {};
+  CAMPOS.forEach(([chave, id]) => { v[chave] = $(id).value; });
+  v.favorito = $('f-favorito').checked;
+  return v;
+}
+
+coinForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!formulario || salvando) return;
+  const valores = lerFormulario();
+  const idsOcupados = formulario.modo === 'create' ? new Set(moedas.map((m) => m.id)) : undefined;
+  const { valido, erros } = validarFormulario(valores, { idsOcupados });
+  mostrarErros(erros);
+  if (!valido) {
+    coinError.textContent = 'Corrija os campos marcados em vermelho.';
+    return;
+  }
+  coinError.textContent = '';
+  salvando = true;
+  coinSave.disabled = true;
+  coinSave.textContent = 'Salvando...';
+  try {
+    let mensagem;
+    if (formulario.modo === 'create') {
+      const r = await api.criarMoeda(montarNovo(valores));
+      mensagem = `${valores.name.trim()} criada (POST ${r.status}).`;
+    } else {
+      const status = await api.substituirMoeda(formulario.docId, montarSubstituicao(formulario.original, valores));
+      mensagem = `${valores.name.trim()} salva (PUT ${status}).`;
+    }
+    coinDialog.close();
+    await recarregar();
+    avisar(mensagem);
+  } catch (err) {
+    coinError.textContent = textoDoErro(err);
+  } finally {
+    salvando = false;
+    coinSave.disabled = false;
+    coinSave.textContent = 'Salvar';
+  }
+});
+
+coinDialog.addEventListener('close', () => { formulario = null; });
+$('coin-cancel').addEventListener('click', () => coinDialog.close());
+btnNew.addEventListener('click', () => abrirFormulario('create'));
+
+// GET na CoinGecko + POST (novas) / PATCH (já existentes) no banco.
+async function importar() {
+  if (btnImport.disabled) return;
+  btnImport.disabled = true;
+  avisar('Buscando as moedas na CoinGecko...', false, 0);
+  try {
+    const r = await api.importarMoedas((feitas, total) => avisar(`Salvando no banco: ${feitas}/${total}...`, false, 0));
+    await recarregar();
+    avisar(`Importação concluída: ${r.criadas} novas (POST) e ${r.atualizadas} atualizadas (PATCH).`);
+  } catch (err) {
+    avisar(textoDoErro(err), true, 9000);
+  } finally {
+    btnImport.disabled = false;
+  }
+}
+btnImport.addEventListener('click', importar);
+
+// ---------- Janela de compra e venda ----------
+function posicaoDe(id) {
   return carteira.holdings.find((h) => h.cryptoId === id);
 }
 
-function abrirOperacao(modo, id) {
-  const moeda = mapaMoedas.get(id);
+function abrirNegociacao(modo, id) {
+  const moeda = moedasPorId.get(id);
   if (!moeda || !carteira) return;
-  operacao = { modo, moeda, tudo: false };
-  erroEl.textContent = '';
-  valorInput.value = '';
-  esvaziar(atalhosEl);
+  negociacao = { modo, moeda, tudo: false };
+  tradeError.textContent = '';
+  tradeValue.value = '';
+  limpar(tradeQuick);
 
   const compra = modo === 'buy';
-  tituloEl.textContent = `${compra ? 'Comprar' : 'Vender'} ${moeda.name}`;
-  rotuloEl.textContent = compra ? 'Quanto você quer investir (R$)?' : 'Quanto você quer vender (R$)?';
-  confirmarBtn.textContent = compra ? 'Comprar' : 'Vender';
+  tradeTitle.textContent = `${compra ? 'Comprar' : 'Vender'} ${moeda.name}`;
+  tradeLabel.textContent = compra ? 'Quanto você quer investir (R$)?' : 'Quanto você quer vender (R$)?';
+  tradeConfirm.textContent = compra ? 'Comprar' : 'Vender';
 
   if (compra) {
-    infoEl.textContent = `Preço agora: ${mostrarReais(moeda.price)} · Você tem ${mostrarReais(carteira.balance)} disponíveis`;
+    tradeInfo.textContent = `Preço agora: ${formatarReais(moeda.price)} · Você tem ${formatarReais(carteira.balance)} disponíveis`;
   } else {
-    const pos = buscarPosicao(id);
+    const pos = posicaoDe(id);
     const qtd = pos ? pos.amount : 0;
-    infoEl.textContent = `Preço agora: ${mostrarReais(moeda.price)} · Você tem ${mostrarQuantidade(qtd)} ${moeda.symbol} (${mostrarReais(qtd * moeda.price)})`;
+    tradeInfo.textContent = `Preço agora: ${formatarReais(moeda.price)} · Você tem ${formatarQuantidade(qtd)} ${moeda.symbol} (${formatarReais(qtd * moeda.price)})`;
   }
 
-  const opcoesAtalho = compra
+  const atalhos = compra
     ? [['10%', 0.1], ['25%', 0.25], ['50%', 0.5], ['Tudo', 1]]
     : [['25%', 0.25], ['50%', 0.5], ['75%', 0.75], ['Tudo', 1]];
-  opcoesAtalho.forEach(([rotulo, fracao]) => {
-    const b = criarElemento('button', 'btn btn-ghost btn-small', rotulo);
+  atalhos.forEach(([rotulo, fracao]) => {
+    const b = el('button', 'btn btn-ghost btn-small', rotulo);
     b.type = 'button';
-    b.addEventListener('click', () => usarAtalho(fracao));
-    atalhosEl.appendChild(b);
+    b.addEventListener('click', () => aplicarAtalho(fracao));
+    tradeQuick.appendChild(b);
   });
 
-  atualizarPrevia();
-  dialogEl.showModal();
-  valorInput.focus();
+  atualizarPreview();
+  dialog.showModal();
+  tradeValue.focus();
 }
 
-function usarAtalho(fracao) {
-  const { modo, moeda } = operacao;
+function aplicarAtalho(fracao) {
+  const { modo, moeda } = negociacao;
   if (modo === 'buy') {
-    valorInput.value = (Math.floor(carteira.balance * fracao * 100) / 100).toFixed(2);
-    operacao.tudo = false;
+    // arredonda para baixo para nunca passar do saldo
+    tradeValue.value = (Math.floor(carteira.balance * fracao * 100) / 100).toFixed(2);
+    negociacao.tudo = false;
   } else {
-    const pos = buscarPosicao(moeda.id);
-    valorInput.value = ((pos?.amount || 0) * fracao * moeda.price).toFixed(2);
-    operacao.tudo = fracao === 1;
+    const pos = posicaoDe(moeda.id);
+    tradeValue.value = ((pos?.amount || 0) * fracao * moeda.price).toFixed(2);
+    negociacao.tudo = fracao === 1;
   }
-  erroEl.textContent = '';
-  atualizarPrevia();
+  tradeError.textContent = '';
+  atualizarPreview();
 }
 
-function atualizarPrevia() {
-  if (!operacao) return;
-  const { modo, moeda } = operacao;
-  const valor = Number(valorInput.value);
+function atualizarPreview() {
+  if (!negociacao) return;
+  const { modo, moeda } = negociacao;
+  const valor = Number(tradeValue.value);
   if (!(valor > 0)) {
-    previaEl.textContent = '';
+    tradePreview.textContent = '';
     return;
   }
   if (modo === 'buy') {
-    previaEl.textContent = `Você vai receber cerca de ${mostrarQuantidade(valor / moeda.price)} ${moeda.symbol}.`;
+    tradePreview.textContent = `Você vai receber cerca de ${formatarQuantidade(valor / moeda.price)} ${moeda.symbol}.`;
   } else {
-    const qtd = operacao.tudo ? buscarPosicao(moeda.id)?.amount : valor / moeda.price;
-    previaEl.textContent = `Você vai vender ${mostrarQuantidade(qtd)} ${moeda.symbol}.`;
+    const qtd = negociacao.tudo ? posicaoDe(moeda.id)?.amount : valor / moeda.price;
+    tradePreview.textContent = `Você vai vender ${formatarQuantidade(qtd)} ${moeda.symbol}.`;
   }
 }
 
-valorInput.addEventListener('input', () => {
-  if (operacao) operacao.tudo = false;
-  erroEl.textContent = '';
-  atualizarPrevia();
+tradeValue.addEventListener('input', () => {
+  if (negociacao) negociacao.tudo = false;
+  tradeError.textContent = '';
+  atualizarPreview();
 });
 
-document.getElementById('trade-cancel').addEventListener('click', () => dialogEl.close());
-dialogEl.addEventListener('close', () => { operacao = null; });
+document.getElementById('trade-cancel').addEventListener('click', () => dialog.close());
+dialog.addEventListener('close', () => { negociacao = null; });
 
-formEl.addEventListener('submit', async (e) => {
+form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  if (!operacao || estaSalvando) return;
-  const { modo, moeda, tudo } = operacao;
+  if (!negociacao || salvando) return;
+  const { modo, moeda, tudo } = negociacao;
 
   try {
     let resultado;
     if (modo === 'buy') {
-      resultado = comprar(carteira, moeda, valorInput.value);
+      resultado = comprar(carteira, moeda, tradeValue.value);
     } else {
-      const pos = buscarPosicao(moeda.id);
-      const quantidade = tudo && pos ? pos.amount : Number(valorInput.value) / moeda.price;
+      const pos = posicaoDe(moeda.id);
+      const quantidade = tudo && pos ? pos.amount : Number(tradeValue.value) / moeda.price;
       resultado = vender(carteira, moeda, quantidade);
     }
 
-    estaSalvando = true;
-    confirmarBtn.disabled = true;
-    await gravarCarteira(resultado.carteira);
+    salvando = true;
+    tradeConfirm.disabled = true;
+    await salvarCarteira(resultado.carteira);
     carteira = resultado.carteira;
 
-    dialogEl.close();
-    renderWallet();
+    dialog.close();
+    renderCarteira();
     renderList();
-    const qtd = `${mostrarQuantidade(resultado.quantidade)} ${moeda.symbol}`;
-    mostrarAviso(modo === 'buy'
-      ? `Pronto! Você comprou ${qtd} por ${mostrarReais(resultado.total)}.`
-      : `Pronto! Você vendeu ${qtd} e recebeu ${mostrarReais(resultado.total)}.`);
+    const qtd = `${formatarQuantidade(resultado.quantidade)} ${moeda.symbol}`;
+    avisar(modo === 'buy'
+      ? `Pronto! Você comprou ${qtd} por ${formatarReais(resultado.total)}.`
+      : `Pronto! Você vendeu ${qtd} e recebeu ${formatarReais(resultado.total)}.`);
   } catch (err) {
-    erroEl.textContent = err instanceof ErroDeCarteira ? err.message : 'Algo deu errado. Tenta de novo.';
+    tradeError.textContent = textoDoErro(err);
   } finally {
-    estaSalvando = false;
-    confirmarBtn.disabled = false;
+    salvando = false;
+    tradeConfirm.disabled = false;
   }
 });
 
-async function resetarCarteira() {
-  const confirmou = confirm(`Isso apaga suas moedas e o histórico e devolve ${mostrarReais(SALDO_INICIAL)} ao saldo. Quer recomeçar?`);
-  if (!confirmou) return;
+async function recomecar() {
+  const ok = confirm(`Isso apaga suas moedas e o histórico e devolve ${formatarReais(SALDO_INICIAL)} ao saldo. Quer recomeçar?`);
+  if (!ok) return;
   try {
-    const carteiraNova = criarCarteira(carteira._id);
-    await gravarCarteira(carteiraNova);
-    carteira = carteiraNova;
-    renderWallet();
+    const nova = novaCarteira(carteira._id);
+    await salvarCarteira(nova);
+    carteira = nova;
+    renderCarteira();
     renderList();
-    mostrarAviso('Carteira zerada. Bora recomeçar!');
+    avisar('Carteira zerada. Bora recomeçar!');
   } catch (err) {
-    mostrarAviso(err.message, true);
+    avisar(textoDoErro(err), true);
   }
 }
 
-// Carrega dados iniciais
-async function iniciarApp() {
+// ---------- Inicialização ----------
+async function iniciar() {
   if (isLoading) return;
   isLoading = true;
-
-  // Limpa lista de forma segura
-  esvaziar(listEl);
-  listEl.appendChild(criarElemento('li', 'loading', 'Carregando as moedas...'));
+  limpar(listEl);
+  listEl.appendChild(el('li', 'loading', 'Carregando as moedas...'));
 
   try {
-    await buscarMoedas();
-    const primeiroAcesso = await carregarCarteira();
-    renderWallet();
-    renderList();
-    if (primeiroAcesso) {
-      mostrarAviso(`Bem-vindo! Criamos sua carteira com ${mostrarReais(SALDO_INICIAL)} de mentirinha para você testar.`);
+    await carregarMoedas();
+    const primeiraVez = await abrirCarteira();
+    renderTudo();
+    if (moedas.length === 0) {
+      await importar(); // banco vazio: importa sozinho (GET na CoinGecko + POST no banco)
+    } else if (primeiraVez) {
+      avisar(`Bem-vindo! Criamos sua carteira com ${formatarReais(SALDO_INICIAL)} de mentirinha para você testar.`);
     }
   } catch (e) {
-    esvaziar(listEl);
-    listEl.appendChild(criarElemento('li', 'error', e.message || 'Algo deu errado ao carregar.'));
+    limpar(listEl);
+    listEl.appendChild(el('li', 'error', textoDoErro(e)));
+    renderPainel();
   } finally {
     isLoading = false;
   }
 }
 
-// Eventos
 searchInput.addEventListener('input', renderList);
-filterMarketCap.addEventListener('change', renderList);
+filterGroup.addEventListener('change', renderList);
 filterChange.addEventListener('change', renderList);
 
-// Inicialização
-iniciarApp();
+iniciar();

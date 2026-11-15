@@ -35,7 +35,7 @@ h1 {
   list-style: none;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
   gap: 16px;
 }
 
@@ -101,11 +101,12 @@ h1 {
   margin: 20px auto;
   max-width: 600px;
 }
+/* ---------- Carteira virtual ---------- */
 .section-title { max-width: 1100px; margin: 24px auto 12px; font-size: 20px; }
 
 .wallet {
   max-width: 1100px;
-  margin: 0 auto;
+  margin: 24px auto 0;
   background: #fff;
   border-radius: 12px;
   padding: 20px;
@@ -172,7 +173,35 @@ details.history summary { cursor: pointer; font-weight: 600; }
 }
 .toast.toast-error { background: #842029; }
 
-.list .error,
-.list .loading {
-  grid-column: 1 / -1;
+/* ---------- Painel ---------- */
+.panel { max-width: 1100px; margin: 0 auto; background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+.panel .section-title { margin: 0 0 4px; }
+.panel h3 { font-size: 15px; margin: 0 0 8px; }
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 16px; margin-bottom: 16px; }
+.chart-card { border: 1px solid #e9ecef; border-radius: 8px; padding: 12px; min-width: 0; }
+.chart-box { position: relative; height: 280px; }
+.rank-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 16px; }
+.ranking { list-style: decimal inside; padding: 0; margin: 0; font-size: 14px; }
+.ranking li { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid #f1f3f5; }
+.groups { list-style: none; }
+.panel .muted { color: #6c757d; font-size: 14px; }
+
+/* ---------- Lista e formulário ---------- */
+.toolbar { max-width: 1100px; margin: 0 auto 12px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.item-body { min-width: 0; }
+.item-actions { flex-wrap: wrap; }
+.comment { font-size: 13px; color: #495057; margin-top: 6px; font-style: italic; overflow-wrap: anywhere; }
+.tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+.tag { font-size: 11px; background: #e7f1ff; color: #084298; padding: 2px 8px; border-radius: 10px; }
+.dialog textarea { width: 100%; box-sizing: border-box; margin-top: 6px; padding: 10px 12px; border: 1px solid #ced4da; border-radius: 6px; font: inherit; font-size: 16px; resize: vertical; }
+.dialog .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.dialog .row > div { min-width: 0; }
+.dialog .check { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+.dialog .check input { width: auto; margin: 0; }
+.field-error { display: block; min-height: 16px; color: #842029; font-size: 12px; margin-top: 2px; }
+#coin-dialog { width: min(94vw, 520px); max-height: 92vh; overflow-y: auto; }
+@media (max-width: 480px) {
+  body { padding: 12px; }
+  .dialog .row { grid-template-columns: 1fr; gap: 0; }
+  .chart-box { height: 240px; }
 }
