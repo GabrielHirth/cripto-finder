@@ -60,11 +60,23 @@ test('importação: cria com POST e, na segunda vez, atualiza com PATCH sem apag
   assert.deepEqual((await api.buscarMoeda('ethereum')).roi, { times: 3 }); // objeto embutido
 });
 
-test('carteira: lê (404 => null), salva e lê de novo', async () => {
+test('carteira: CRUD completo (listar, ler, criar, salvar, alterar, excluir)', async () => {
   await api.garantirEstrutura();
-  assert.equal(await api.lerCarteira('carteira-1'), null);
-  await api.salvarCarteira({ _id: 'carteira-1', balance: 10000, holdings: [], transactions: [] });
-  assert.equal((await api.lerCarteira('carteira-1')).balance, 10000);
+  assert.equal(await api.lerCarteira('carteira-999'), null);
+  assert.deepEqual(await api.listarCarteiras(), []);
+
+  const nova = { _id: 'carteira-test', balance: 10000, holdings: [], transactions: [] };
+  await api.salvarCarteira(nova);
+  assert.equal((await api.lerCarteira('carteira-test')).balance, 10000);
+
+  assert.equal(await api.alterarCarteira('carteira-test', { balance: 9500 }), 200);
+  assert.equal((await api.lerCarteira('carteira-test')).balance, 9500);
+
+  const lista = await api.listarCarteiras();
+  assert.equal(lista.length, 1);
+
+  assert.equal(await api.excluirCarteira('carteira-test'), 204);
+  assert.equal(await api.lerCarteira('carteira-test'), null);
 });
 
 test('todas as requisições levam Basic Auth (sem ele o RESTHeart devolve 401)', () => {

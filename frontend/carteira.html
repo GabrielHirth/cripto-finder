@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Carteiras - Cripto Finder</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!--
+    THESIS: cockpit de trading — mesma linguagem visual da página principal, aplikada ao CRUD de carteiras.
+    OWN-WORLD: fundo preto-azulado #0a0e14, painéis #11161f, acento verde-neon #00e08a, dados em mono tabular.
+    STORY: o estudante gerencia carteiras simuladas como posições de um operador (criar, editar, comprar, swap, excluir).
+    FIRST VIEWPORT: título mono com prompt, barra de ações e lista de carteiras em cards de terminal.
+    FORM: trading cockpit dark. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+  -->
+  <h1>Carteiras simuladas</h1>
+  <p class="muted" style="text-align:center;max-width:1100px;margin:0 auto 16px;">
+    CRUD completo sobre a coleção <code>wallets</code> do banco:
+    listar (GET), criar (POST), editar (GET + PUT), alterar campo (PATCH) e excluir (DELETE).
+    <a href="index.html">Voltar para o Cripto Finder</a>
+  </p>
+
+  <section class="toolbar">
+    <button type="button" id="btn-nova-carteira" class="btn btn-primary">+ Nova carteira</button>
+    <button type="button" id="btn-recarregar" class="btn btn-ghost">Recarregar lista</button>
+  </section>
+
+  <ul id="wallet-list" class="list"></ul>
+
+  <!-- Diálogo de detalhes / visualizador de ativos, venda e troca (swap) -->
+  <dialog id="wallet-details-dialog" class="dialog" style="width:min(94vw, 600px)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h3 id="details-title" style="margin:0;">Ativos da carteira</h3>
+      <button type="button" id="details-close" class="btn btn-ghost btn-small">✕ Fechar</button>
+    </div>
+    <div id="details-summary" style="margin-bottom:16px;"></div>
+    <div id="details-holdings"></div>
+    <hr style="margin:20px 0;border:none;border-top:1px solid #dee2e6;" />
+    <h4>Troca / Swap de ativos</h4>
+    <form id="swap-form" novalidate>
+      <div class="row">
+        <div>
+          <label for="swap-from">Vender (Origem)</label>
+          <select id="swap-from"></select>
+        </div>
+        <div>
+          <label for="swap-to">Comprar (Destino)</label>
+          <select id="swap-to"></select>
+        </div>
+      </div>
+      <label for="swap-amount">Quantidade para trocar</label>
+      <input type="number" id="swap-amount" min="0" step="any" inputmode="decimal" placeholder="0,00" />
+      <p id="swap-preview" class="preview"></p>
+      <p id="swap-error" class="error-inline" role="alert"></p>
+      <div class="dialog-actions" style="margin-top:12px;">
+        <button type="submit" id="swap-confirm" class="btn btn-primary">Realizar Swap</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Criar (POST) / editar (PUT) -->
+  <dialog id="wallet-dialog" class="dialog">
+    <form id="wallet-form" novalidate>
+      <h3 id="wallet-title"></h3>
+      <label for="w-id">Identificador (_id)</label>
+      <input id="w-id" name="id" type="text" maxlength="60" autocomplete="off" placeholder="ex.: carteira-ana" />
+      <span class="field-error" data-erro="id"></span>
+
+      <label for="w-balance">Saldo inicial (R$)</label>
+      <input id="w-balance" name="balance" type="number" min="0" step="0.01" inputmode="decimal" />
+      <span class="field-error" data-erro="balance"></span>
+
+      <p id="wallet-error" class="error-inline" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" id="wallet-cancel" class="btn btn-ghost">Cancelar</button>
+        <button type="submit" id="wallet-save" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <!-- Compra simulada de cripto ativo -->
+  <dialog id="buy-dialog" class="dialog">
+    <form id="buy-form" novalidate>
+      <h3 id="buy-title">Comprar cripto</h3>
+      <p id="buy-info" class="muted"></p>
+      <label for="buy-moeda">Criptoativo</label>
+      <select id="buy-moeda"></select>
+      <label for="buy-valor">Quanto investir (R$)?</label>
+      <input type="number" id="buy-valor" min="0" step="0.01" inputmode="decimal" placeholder="0,00" />
+      <p id="buy-preview" class="preview"></p>
+      <p id="buy-error" class="error-inline" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" id="buy-cancel" class="btn btn-ghost">Cancelar</button>
+        <button type="submit" id="buy-confirm" class="btn btn-primary">Confirmar compra</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="carteira-page.js"></script>
+</body>
+</html>
