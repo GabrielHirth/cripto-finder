@@ -107,7 +107,19 @@ export async function excluirMoeda(docId) {
   return r.status;
 }
 
-// ---------- Banco: carteira ----------
+// ---------- Banco: carteiras (CRUD) ----------
+// GET na coleção: lista todas as carteiras.
+export async function listarCarteiras() {
+  const r = await requisitar(URL_CARTEIRAS);
+  if (r.status === 404) {
+    await garantirEstrutura(); // instalação nova: cria a coleção e devolve lista vazia
+    return [];
+  }
+  exigir(r, 'Não consegui listar as carteiras');
+  return r.json();
+}
+
+// GET /{id}: 404 vira null (quem chama decide se cria uma nova).
 export async function lerCarteira(id) {
   const r = await requisitar(`${URL_CARTEIRAS}/${cod(id)}`);
   if (r.status === 404) return null;
@@ -115,11 +127,39 @@ export async function lerCarteira(id) {
   return r.json();
 }
 
+// GET /{id} com erro: 404 vira erro claro (útil para o CRUD de edição).
+export async function buscarCarteira(id) {
+  const r = await requisitar(`${URL_CARTEIRAS}/${cod(id)}`);
+  if (r.status === 404) throw new ErroApi('Essa carteira não existe mais no banco (HTTP 404).', 404);
+  exigir(r, 'Não consegui buscar a carteira');
+  return r.json();
+}
+
+// POST: cria documento novo. O id gerado vem no cabeçalho Location.
+export async function criarCarteira(c) {
+  const r = exigir(await requisitar(URL_CARTEIRAS, 'POST', c), 'Não consegui criar a carteira');
+  const local = r.headers.get('Location');
+  return { status: r.status, docId: local ? local.split('/').pop() : null };
+}
+
+// PUT: cria (201) ou substitui o documento inteiro (200).
 export async function salvarCarteira(c) {
   exigir(
     await requisitar(`${URL_CARTEIRAS}/${cod(c._id)}`, 'PUT', c),
     'Não consegui salvar sua carteira agora. Nada foi alterado, tenta de novo em instantes'
   );
+}
+
+// PATCH: altera só os campos enviados (ex.: só o balance após uma compra).
+export async function alterarCarteira(id, campos) {
+  const r = exigir(await requisitar(`${URL_CARTEIRAS}/${cod(id)}`, 'PATCH', campos), 'Não consegui alterar a carteira');
+  return r.status;
+}
+
+// DELETE: remove (204 No Content).
+export async function excluirCarteira(id) {
+  const r = exigir(await requisitar(`${URL_CARTEIRAS}/${cod(id)}`, 'DELETE'), 'Não consegui excluir a carteira');
+  return r.status;
 }
 
 // ---------- Origem: CoinGecko (somente GET) ----------
