@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 
-import { writeFileSync } from 'fs';
+import { mkdirSync, writeFileSync } from 'fs';
+
+const API_BASE = process.env.API_BASE || 'http://localhost:8080';
+const URL_CRIPTO = `${API_BASE}/cripto`;
+const AUTORIZACAO = 'Basic ' + Buffer.from(process.env.RH_AUTH || 'admin:secret').toString('base64');
 
 async function fetchCoinGecko() {
   const url = new URL('https://api.coingecko.com/api/v3/coins/markets');
@@ -11,10 +15,40 @@ async function fetchCoinGecko() {
   url.searchParams.set('sparkline', 'false');
 
   const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`CoinGecko API error: ${response.status}`);
-  }
+  if (!response.ok) throw new Error(`CoinGecko API error: ${response.status}`);
   return response.json();
+}
+
+const aguardar = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function lerErro(r) {
+  try { return (await r.text()).slice(0, 300); } catch { return ''; }
+}
+
+async function criarColecao(url) {
+  for (let tentativa = 1; tentativa <= 6; tentativa++) {
+    const r = await fetch(url, { method: 'PUT', headers: { Authorization: AUTORIZACAO } });
+    if (r.status === 401) throw new Error('RestHeart recusou o usuário/senha (401). Confira RH_AUTH ou a senha do admin.');
+    if (r.ok) return;
+    if (tentativa === 6) {
+      throw new Error(`Não consegui criar ${url} (status ${r.status}). ${await lerErro(r)}`);
+    }
+    await aguardar(1000);
+  }
+}
+
+async function enviarParaApi(docs) {
+  await criarColecao(URL_CRIPTO);
+  console.log(`Coleção ${URL_CRIPTO} pronta`);
+
+  const r = await fetch(URL_CRIPTO, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: AUTORIZACAO },
+    body: JSON.stringify(docs),
+  });
+  if (!r.ok) {
+    throw new Error(`RestHeart respondeu ${r.status} ao salvar as moedas. ${await lerErro(r)}`);
+  }
 }
 
 async function main() {
@@ -22,27 +56,28 @@ async function main() {
     const data = await fetchCoinGecko();
 
     // Add group fields (not in CoinGecko)
-    const enriched = data.map(doc => ({
+    const enriched = data.map((doc) => ({
       ...doc,
+      _id: doc.id,
       favorito: false,
       nota: '',
       comentario: '',
-      atualizadoEm: null,
+      atualizadoEm: new Date().toISOString(),
       criadoEm: new Date().toISOString(),
-      _grupo: 'cripto-finder',
-      _version: '1.0'
+      grupo: 'cripto-finder',
+      versao: '1.0',
     }));
-
-    console.log(`Fetched ${enriched.length} from CoinGecko`);
+    console.log(`Buscamos ${enriched.length} moedas no CoinGecko`);
 
     // Save to /scripts/data/import-cripto.json for manual import
-    const jsonPath = new URL('./scripts/data/import-cripto.json', import.meta.url).pathname;
-    writeFileSync(jsonPath, JSON.stringify(enriched, null, 2), 'utf8');
-    console.log(`Saved to ${jsonPath}`);
+    const dir = new URL('./data/', import.meta.url);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(new URL('import-cripto.json', dir), JSON.stringify(enriched, null, 2), 'utf8');
 
-    console.log('Next: push to RestHeart via API or import JSON directly');
+    await enviarParaApi(enriched);
+    console.log(`Pronto! ${enriched.length} moedas salvas em ${URL_CRIPTO}`);
   } catch (err) {
-    console.error('Error:', err.message);
+    console.error('Erro:', err.message);
     process.exit(1);
   }
 }

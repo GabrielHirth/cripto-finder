@@ -5,8 +5,12 @@
   "main": "app.js",
   "type": "module",
   "scripts": {
-    "start": "node ./node_modules/http-server/bin/http-server -p 8080 ./frontend -o",
-    "import": "node scripts/import-cripto.js"
+    "start": "http-server -p 3000 ./frontend -o",
+    "import": "node scripts/import-cripto.js",
+    "test": "node --test tests/carteira.test.js"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
   },
   "keywords": ["cripto", "api", "crypto"],
   "author": "Gabriel Hirth",
