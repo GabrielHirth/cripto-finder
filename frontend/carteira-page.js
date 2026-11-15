@@ -2,18 +2,24 @@ import * as api from './api.js';
 import { comprar, vender, resumir, normalizarMoeda, formatarReais, formatarQuantidade } from './wallet-logic.js';
 
 let carteiras = [];
+let moedas = [];
 let dialogModo = 'create'; // 'create' | 'edit'
 let carteiraOriginal = null;
-let moedas = []; // criptoativos disponíveis para compra
+let compra = null; // carteira em aberto no diálogo de compra
+let visualizadorCarteira = null;
 
 const $ = (id) => document.getElementById(id);
-const listEl = $('wallet-list');
-const dialog = $('wallet-dialog');
-const form = $('wallet-form');
-const titleEl = $('wallet-title');
-const errorEl = $('wallet-error');
-const saveBtn = $('wallet-save');
 const toastEl = $('toast');
+
+function el(tag, className, text) {
+  const n = document.createElement(tag);
+  if (className) n.className = className;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+const mapaMoedas = () => new Map(moedas.map((m) => [m.id, m]));
 
 let toastTimer;
 function avisar(msg, erro = false, ms = 5000) {
@@ -24,122 +30,81 @@ function avisar(msg, erro = false, ms = 5000) {
   if (ms > 0) toastTimer = setTimeout(() => { toastEl.hidden = true; }, ms);
 }
 
-const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+function preencherSelect(select, opcoes) {
+  select.textContent = '';
+  opcoes.forEach(([valor, rotulo]) => {
+    const opt = el('option');
+    opt.value = valor;
+    opt.textContent = rotulo;
+    select.appendChild(opt);
+  });
+}
 
+// ---------- Lista de carteiras ----------
 async function carregar() {
+  const listEl = $('wallet-list');
   listEl.textContent = '';
-  const liLoad = document.createElement('li');
-  liLoad.className = 'loading';
-  liLoad.textContent = 'Carregando carteiras...';
-  listEl.appendChild(liLoad);
+  listEl.appendChild(el('li', 'loading', 'Carregando carteiras...'));
   try {
     [carteiras, moedas] = await Promise.all([api.listarCarteiras(), api.listarMoedas()]);
     moedas = moedas.map(normalizarMoeda);
     render();
   } catch (err) {
     listEl.textContent = '';
-    const liErr = document.createElement('li');
-    liErr.className = 'error';
-    liErr.textContent = err.message || 'Erro ao carregar';
-    listEl.appendChild(liErr);
+    listEl.appendChild(el('li', 'error', err.message || 'Erro ao carregar'));
   }
 }
 
+function botao(rotulo, classe, aoClicar) {
+  const b = el('button', `btn ${classe} btn-small`, rotulo);
+  b.type = 'button';
+  b.addEventListener('click', aoClicar);
+  return b;
+}
+
 function render() {
+  const listEl = $('wallet-list');
   listEl.textContent = '';
   if (carteiras.length === 0) {
-    const liEmpty = document.createElement('li');
-    liEmpty.className = 'loading';
-    liEmpty.textContent = 'Nenhuma carteira cadastrada ainda. Clique em "+ Nova carteira".';
-    listEl.appendChild(liEmpty);
+    listEl.appendChild(el('li', 'loading', 'Nenhuma carteira cadastrada ainda. Clique em "+ Nova carteira".'));
     return;
   }
+  const mapa = mapaMoedas();
   carteiras.forEach((c) => {
-    const li = document.createElement('li');
-    li.className = 'item';
-
-    const body = document.createElement('div');
-    body.className = 'item-body';
-
-    const h2 = document.createElement('h2');
-    const strongId = document.createElement('strong');
-    strongId.textContent = 'ID: ';
-    h2.appendChild(strongId);
+    const li = el('li', 'item');
+    const body = el('div', 'item-body');
+    const h2 = el('h2');
+    h2.appendChild(el('strong', null, 'ID: '));
     h2.appendChild(document.createTextNode(c._id));
-    body.appendChild(h2);
-
-    const divPrice = document.createElement('div');
-    divPrice.className = 'price';
-    divPrice.textContent = `Saldo: ${brl.format(c.balance || 0)}`;
-    body.appendChild(divPrice);
-
-    const divMc = document.createElement('div');
-    divMc.className = 'marketcap';
-    const r = resumir(c, new Map(moedas.map((m) => [m.id, m])));
-    divMc.textContent = `Posições: ${(c.holdings || []).length} · Transações: ${(c.transactions || []).length} · Total: ${formatarReais(r.total)}`;
-    body.appendChild(divMc);
-
-    const divDate = document.createElement('div');
-    divDate.className = 'marketcap';
-    divDate.textContent = `Criada em: ${c.createdAt ? new Date(c.createdAt).toLocaleString('pt-BR') : '—'}`;
-    body.appendChild(divDate);
-
-    li.appendChild(body);
-
-    const actions = document.createElement('div');
-    actions.className = 'item-actions';
-
-    const btnEdit = document.createElement('button');
-    btnEdit.className = 'btn btn-ghost btn-small';
-    btnEdit.textContent = 'Editar (PUT)';
-    btnEdit.onclick = () => abrirEdicao(c);
-
-    const btnBonus = document.createElement('button');
-    btnBonus.className = 'btn btn-primary btn-small';
-    btnBonus.textContent = '+R$ 1000 (PATCH)';
-    btnBonus.onclick = () => somarSaldo(c);
-
-    const btnDetails = document.createElement('button');
-    btnDetails.className = 'btn btn-ghost btn-small';
-    btnDetails.textContent = 'Ver ativos & Swap';
-    btnDetails.onclick = () => abrirVisualizador(c);
-
-    const btnBuy = document.createElement('button');
-    btnBuy.className = 'btn btn-primary btn-small';
-    btnBuy.textContent = 'Comprar';
-    btnBuy.onclick = () => abrirCompra(c);
-
-    const btnDel = document.createElement('button');
-    btnDel.className = 'btn btn-sell btn-small';
-    btnDel.textContent = 'Excluir';
-    btnDel.onclick = () => excluir(c._id);
-
-    actions.append(btnEdit, btnBonus, btnDetails, btnBuy, btnDel);
-    li.appendChild(actions);
+    body.append(
+      h2,
+      el('div', 'price', `Saldo: ${brl.format(c.balance || 0)}`),
+      el('div', 'marketcap', `Posições: ${(c.holdings || []).length} · Transações: ${(c.transactions || []).length} · Total: ${formatarReais(resumir(c, mapa).total)}`),
+      el('div', 'marketcap', `Criada em: ${c.createdAt ? new Date(c.createdAt).toLocaleString('pt-BR') : '—'}`),
+    );
+    const actions = el('div', 'item-actions');
+    actions.append(
+      botao('Editar (PUT)', 'btn-ghost', () => abrirFormulario('edit', c)),
+      botao('+R$ 1000 (PATCH)', 'btn-primary', () => somarSaldo(c)),
+      botao('Ver ativos & Swap', 'btn-ghost', () => abrirVisualizador(c)),
+      botao('Comprar', 'btn-primary', () => abrirCompra(c)),
+      botao('Excluir', 'btn-sell', () => excluir(c._id)),
+    );
+    li.append(body, actions);
     listEl.appendChild(li);
   });
 }
 
-function abrirCriacao() {
-  dialogModo = 'create';
-  carteiraOriginal = null;
-  titleEl.textContent = 'Nova carteira (POST)';
-  $('w-id').value = `carteira-${Math.random().toString(36).slice(2, 8)}`;
-  $('w-id').disabled = false;
-  $('w-balance').value = '10000';
-  errorEl.textContent = '';
-  dialog.showModal();
-}
-
-function abrirEdicao(c) {
-  dialogModo = 'edit';
+// ---------- Criar / editar (POST / PUT) ----------
+function abrirFormulario(modo, c = null) {
+  dialogModo = modo;
   carteiraOriginal = c;
-  titleEl.textContent = `Editar ${c._id} (PUT)`;
-  $('w-id').value = c._id;
-  $('w-id').disabled = true;
-  $('w-balance').value = c.balance ?? 0;
-  errorEl.textContent = '';
-  dialog.showModal();
+  $('wallet-title').textContent = modo === 'create' ? 'Nova carteira (POST)' : `Editar ${c._id} (PUT)`;
+  $('w-id').value = modo === 'create' ? `carteira-${Math.random().toString(36).slice(2, 8)}` : c._id;
+  $('w-id').disabled = modo === 'edit';
+  $('w-balance').value = modo === 'create' ? '10000' : c.balance ?? 0;
+  $('wallet-error').textContent = '';
+  $('wallet-dialog').showModal();
 }
 
 async function somarSaldo(c) {
@@ -164,43 +129,29 @@ async function excluir(id) {
   }
 }
 
-form.onsubmit = async (e) => {
+$('wallet-form').onsubmit = async (e) => {
   e.preventDefault();
   const id = $('w-id').value.trim();
   const balance = Number($('w-balance').value);
-  if (!id) {
-    errorEl.textContent = 'Informe o ID da carteira.';
-    return;
-  }
-  if (!Number.isFinite(balance) || balance < 0) {
-    errorEl.textContent = 'Saldo inválido.';
-    return;
-  }
+  const errorEl = $('wallet-error');
+  if (!id) return void (errorEl.textContent = 'Informe o ID da carteira.');
+  if (!Number.isFinite(balance) || balance < 0) return void (errorEl.textContent = 'Saldo inválido.');
 
+  const saveBtn = $('wallet-save');
   saveBtn.disabled = true;
   saveBtn.textContent = 'Salvando...';
   errorEl.textContent = '';
-
   try {
     if (dialogModo === 'create') {
-      const nova = {
-        _id: id,
-        balance,
-        holdings: [],
-        transactions: [],
-        createdAt: new Date().toISOString(),
-      };
-      const res = await api.criarCarteira(nova);
+      const res = await api.criarCarteira({
+        _id: id, balance, holdings: [], transactions: [], createdAt: new Date().toISOString(),
+      });
       avisar(`Carteira criada (POST ${res.status}).`);
     } else {
-      const atualizada = {
-        ...carteiraOriginal,
-        balance,
-      };
-      await api.salvarCarteira(atualizada);
-      avisar(`Carteira salva (PUT 200/201).`);
+      await api.salvarCarteira({ ...carteiraOriginal, balance });
+      avisar('Carteira salva (PUT 200/201).');
     }
-    dialog.close();
+    $('wallet-dialog').close();
     await carregar();
   } catch (err) {
     errorEl.textContent = err.message;
@@ -210,288 +161,201 @@ form.onsubmit = async (e) => {
   }
 };
 
-$('btn-nova-carteira').onclick = abrirCriacao;
+$('btn-nova-carteira').onclick = () => abrirFormulario('create');
 $('btn-recarregar').onclick = carregar;
-$('wallet-cancel').onclick = () => dialog.close();
+$('wallet-cancel').onclick = () => $('wallet-dialog').close();
 
 // ---------- Compra simulada ----------
-let compra = null; // { carteiraId, carteira }
-const buyDialog = $('buy-dialog');
-const buyForm = $('buy-form');
-const buyMoeda = $('buy-moeda');
-const buyValor = $('buy-valor');
-const buyInfo = $('buy-info');
-const buyPreview = $('buy-preview');
-const buyError = $('buy-error');
-const buyConfirm = $('buy-confirm');
-
 function abrirCompra(c) {
   if (moedas.length === 0) {
     avisar('Nenhum criptoativo no banco. Importe as moedas na página principal primeiro.', true);
     return;
   }
-  compra = { carteiraId: c._id, carteira: c };
-  buyError.textContent = '';
-  buyValor.value = '';
-  buyPreview.textContent = '';
+  compra = c;
+  $('buy-error').textContent = '';
+  $('buy-valor').value = '';
+  $('buy-preview').textContent = '';
   $('buy-title').textContent = `Comprar com ${c._id}`;
-  buyInfo.textContent = `Saldo disponível: ${formatarReais(c.balance)}`;
-  buyMoeda.textContent = '';
-  moedas.forEach((m) => {
-    const opt = document.createElement('option');
-    opt.value = m.id;
-    opt.textContent = `${m.name} (${m.symbol}) - ${formatarReais(m.price)}`;
-    buyMoeda.appendChild(opt);
-  });
+  $('buy-info').textContent = `Saldo disponível: ${formatarReais(c.balance)}`;
+  preencherSelect($('buy-moeda'), moedas.map((m) => [m.id, `${m.name} (${m.symbol}) - ${formatarReais(m.price)}`]));
   atualizarPreviewCompra();
-  buyDialog.showModal();
-  buyValor.focus();
+  $('buy-dialog').showModal();
+  $('buy-valor').focus();
 }
 
 function atualizarPreviewCompra() {
   if (!compra) return;
-  const moeda = moedas.find((m) => m.id === buyMoeda.value);
-  const valor = Number(buyValor.value);
-  if (!moeda || !(valor > 0)) {
-    buyPreview.textContent = '';
-    return;
-  }
-  buyPreview.textContent = `Você vai receber cerca de ${formatarQuantidade(valor / moeda.price)} ${moeda.symbol}.`;
+  const moeda = mapaMoedas().get($('buy-moeda').value);
+  const valor = Number($('buy-valor').value);
+  $('buy-preview').textContent = moeda && valor > 0
+    ? `Você vai receber cerca de ${formatarQuantidade(valor / moeda.price)} ${moeda.symbol}.`
+    : '';
 }
 
-buyMoeda.onchange = atualizarPreviewCompra;
-buyValor.oninput = () => { buyError.textContent = ''; atualizarPreviewCompra(); };
-$('buy-cancel').onclick = () => buyDialog.close();
-buyDialog.addEventListener('close', () => { compra = null; });
+$('buy-moeda').onchange = atualizarPreviewCompra;
+$('buy-valor').oninput = () => { $('buy-error').textContent = ''; atualizarPreviewCompra(); };
+$('buy-cancel').onclick = () => $('buy-dialog').close();
+$('buy-dialog').addEventListener('close', () => { compra = null; });
 
-buyForm.onsubmit = async (e) => {
+$('buy-form').onsubmit = async (e) => {
   e.preventDefault();
   if (!compra) return;
-  const moeda = moedas.find((m) => m.id === buyMoeda.value);
+  const moeda = mapaMoedas().get($('buy-moeda').value);
+  const confirmBtn = $('buy-confirm');
   try {
-    const resultado = comprar(compra.carteira, moeda, buyValor.value);
-    buyConfirm.disabled = true;
+    const resultado = comprar(compra, moeda, $('buy-valor').value);
+    confirmBtn.disabled = true;
     await api.salvarCarteira(resultado.carteira);
-    buyDialog.close();
+    $('buy-dialog').close();
     await carregar();
     avisar(`Pronto! Comprou ${formatarQuantidade(resultado.quantidade)} ${moeda.symbol} por ${formatarReais(resultado.total)}.`);
   } catch (err) {
-    buyError.textContent = err.message;
+    $('buy-error').textContent = err.message;
   } finally {
-    buyConfirm.disabled = false;
+    confirmBtn.disabled = false;
   }
 };
 
-// ---------- Visualizador de ativos, Venda e Swap ----------
-let visualizadorCarteira = null;
-
-const detailsDialog = $('wallet-details-dialog');
-const detailsTitle = $('details-title');
-const detailsSummary = $('details-summary');
-const detailsHoldings = $('details-holdings');
-const swapForm = $('swap-form');
-const swapFrom = $('swap-from');
-const swapTo = $('swap-to');
-const swapAmount = $('swap-amount');
-const swapPreview = $('swap-preview');
-const swapError = $('swap-error');
-const swapConfirm = $('swap-confirm');
-
+// ---------- Visualizador de ativos, venda e swap ----------
 function abrirVisualizador(c) {
   visualizadorCarteira = c;
   renderizarVisualizador();
-  detailsDialog.showModal();
+  $('wallet-details-dialog').showModal();
 }
 
 function renderizarVisualizador() {
   if (!visualizadorCarteira) return;
   const c = visualizadorCarteira;
-  const mapa = new Map(moedas.map((m) => [m.id, m]));
+  const mapa = mapaMoedas();
   const r = resumir(c, mapa);
 
-  detailsTitle.textContent = `Ativos da carteira: ${c._id}`;
+  $('details-title').textContent = `Ativos da carteira: ${c._id}`;
 
-  detailsSummary.textContent = '';
-  const statsDiv = document.createElement('div');
-  statsDiv.className = 'stats';
-  const mk = (label, value) => {
-    const s = document.createElement('div');
-    s.className = 'stat';
-    const l = document.createElement('div');
-    l.className = 'label';
-    l.textContent = label;
-    const v = document.createElement('div');
-    v.className = 'value';
-    v.textContent = value;
-    s.append(l, v);
+  const summary = $('details-summary');
+  summary.textContent = '';
+  const stats = el('div', 'stats');
+  const stat = (label, value) => {
+    const s = el('div', 'stat');
+    s.append(el('div', 'label', label), el('div', 'value', value));
     return s;
   };
-  statsDiv.append(
-    mk('Disponível (BRL)', formatarReais(c.balance)),
-    mk('Valor em Cripto', formatarReais(r.valorAtual)),
-    mk('Total Geral', formatarReais(r.total)),
+  stats.append(
+    stat('Disponível (BRL)', formatarReais(c.balance)),
+    stat('Valor em Cripto', formatarReais(r.valorAtual)),
+    stat('Total Geral', formatarReais(r.total)),
   );
-  detailsSummary.appendChild(statsDiv);
+  summary.appendChild(stats);
 
-  detailsHoldings.textContent = '';
+  const box = $('details-holdings');
+  box.textContent = '';
   if (r.posicoes.length === 0) {
-    const p = document.createElement('p');
-    p.className = 'empty';
-    p.textContent = 'Nenhum criptoativo nesta carteira.';
-    detailsHoldings.appendChild(p);
+    box.appendChild(el('p', 'empty', 'Nenhum criptoativo nesta carteira.'));
   } else {
-    const ul = document.createElement('ul');
-    ul.className = 'holdings';
+    const ul = el('ul', 'holdings');
     r.posicoes.forEach((p) => {
-      const li = document.createElement('li');
-      li.className = 'holding';
-
-      const info = document.createElement('div');
-      info.className = 'info';
-      const strong = document.createElement('strong');
-      strong.textContent = `${p.name} (${p.symbol})`;
-      const span = document.createElement('span');
-      span.textContent = `${formatarQuantidade(p.amount)} ${p.symbol} · Preço médio: ${formatarReais(p.avgPrice)} · Atual: ${formatarReais(p.precoAtual)}`;
-      info.append(strong, span);
-
-      const res = document.createElement('div');
-      res.className = 'result';
-      const divVal = document.createElement('div');
-      divVal.textContent = formatarReais(p.valor);
-      const divLucro = document.createElement('div');
-      divLucro.className = p.lucro >= 0 ? 'positive-text' : 'negative-text';
-      divLucro.textContent = `${p.lucro >= 0 ? '+' : ''}${formatarReais(p.lucro)} (${p.lucroPct.toFixed(2)}%)`;
-      res.append(divVal, divLucro);
-
-      const btnVender = document.createElement('button');
-      btnVender.className = 'btn btn-sell btn-small';
-      btnVender.textContent = 'Vender 100%';
-      btnVender.onclick = async () => {
-        try {
-          const moedaObj = mapa.get(p.cryptoId);
-          const resVenda = vender(visualizadorCarteira, moedaObj, p.amount);
-          await api.salvarCarteira(resVenda.carteira);
-          visualizadorCarteira = resVenda.carteira;
-          await carregar();
-          renderizarVisualizador();
-          avisar(`Vendido ${formatarQuantidade(p.amount)} ${p.symbol} por ${formatarReais(resVenda.total)}.`);
-        } catch (err) {
-          avisar(err.message, true);
-        }
-      };
-
-      li.append(info, res, btnVender);
+      const li = el('li', 'holding');
+      const info = el('div', 'info');
+      info.append(
+        el('strong', null, `${p.name} (${p.symbol})`),
+        el('span', null, `${formatarQuantidade(p.amount)} ${p.symbol} · Preço médio: ${formatarReais(p.avgPrice)} · Atual: ${formatarReais(p.precoAtual)}`),
+      );
+      const res = el('div', 'result');
+      res.append(
+        el('div', null, formatarReais(p.valor)),
+        el('div', p.lucro >= 0 ? 'positive-text' : 'negative-text', `${p.lucro >= 0 ? '+' : ''}${formatarReais(p.lucro)} (${p.lucroPct.toFixed(2)}%)`),
+      );
+      li.append(info, res, botao('Vender 100%', 'btn-sell', () => venderTudo(p, mapa)));
       ul.appendChild(li);
     });
-    detailsHoldings.appendChild(ul);
+    box.appendChild(ul);
   }
 
-  // Preencher selects do Swap
-  swapFrom.textContent = '';
-  const optBrl = document.createElement('option');
-  optBrl.value = 'BRL';
-  optBrl.textContent = `BRL (Saldo: ${formatarReais(c.balance)})`;
-  swapFrom.appendChild(optBrl);
-  c.holdings.forEach((h) => {
-    const opt = document.createElement('option');
-    opt.value = h.cryptoId;
-    opt.textContent = `${h.symbol} (Qtd: ${formatarQuantidade(h.amount)})`;
-    swapFrom.appendChild(opt);
-  });
-
-  swapTo.textContent = '';
-  moedas.forEach((m) => {
-    const opt = document.createElement('option');
-    opt.value = m.id;
-    opt.textContent = `${m.name} (${m.symbol}) - ${formatarReais(m.price)}`;
-    swapTo.appendChild(opt);
-  });
+  preencherSelect($('swap-from'), [
+    ['BRL', `BRL (Saldo: ${formatarReais(c.balance)})`],
+    ...c.holdings.map((h) => [h.cryptoId, `${h.symbol} (Qtd: ${formatarQuantidade(h.amount)})`]),
+  ]);
+  preencherSelect($('swap-to'), moedas.map((m) => [m.id, `${m.name} (${m.symbol}) - ${formatarReais(m.price)}`]));
   atualizarPreviewSwap();
+}
+
+async function venderTudo(posicao, mapa) {
+  try {
+    const resVenda = vender(visualizadorCarteira, mapa.get(posicao.cryptoId), posicao.amount);
+    await api.salvarCarteira(resVenda.carteira);
+    visualizadorCarteira = resVenda.carteira;
+    await carregar();
+    renderizarVisualizador();
+    avisar(`Vendido ${formatarQuantidade(posicao.amount)} ${posicao.symbol} por ${formatarReais(resVenda.total)}.`);
+  } catch (err) {
+    avisar(err.message, true);
+  }
 }
 
 function atualizarPreviewSwap() {
   if (!visualizadorCarteira) return;
-  const fromId = swapFrom.value;
-  const toId = swapTo.value;
-  const qtd = Number(swapAmount.value);
-  if (!(qtd > 0) || fromId === toId) {
-    swapPreview.textContent = '';
-    return;
-  }
-  const mapa = new Map(moedas.map((m) => [m.id, m]));
+  const fromId = $('swap-from').value;
+  const toId = $('swap-to').value;
+  const qtd = Number($('swap-amount').value);
+  const preview = $('swap-preview');
+  if (!(qtd > 0) || fromId === toId) return void (preview.textContent = '');
+  const mapa = mapaMoedas();
   const destino = mapa.get(toId);
   if (!destino) return;
 
   if (fromId === 'BRL') {
-    if (qtd > visualizadorCarteira.balance) {
-      swapPreview.textContent = 'Saldo em BRL insuficiente.';
-      return;
-    }
-    const rec = qtd / destino.price;
-    swapPreview.textContent = `Investindo ${formatarReais(qtd)} você receberá ~${formatarQuantidade(rec)} ${destino.symbol}.`;
+    preview.textContent = qtd > visualizadorCarteira.balance
+      ? 'Saldo em BRL insuficiente.'
+      : `Investindo ${formatarReais(qtd)} você receberá ~${formatarQuantidade(qtd / destino.price)} ${destino.symbol}.`;
   } else {
     const holding = visualizadorCarteira.holdings.find((h) => h.cryptoId === fromId);
     const origem = mapa.get(fromId);
     if (!holding || !origem) return;
-    if (qtd > holding.amount) {
-      swapPreview.textContent = `Quantidade de ${origem.symbol} excede o que você possui.`;
-      return;
-    }
     const valorBrl = qtd * origem.price;
-    const rec = valorBrl / destino.price;
-    swapPreview.textContent = `Trocando ${formatarQuantidade(qtd)} ${origem.symbol} (~${formatarReais(valorBrl)}) por ~${formatarQuantidade(rec)} ${destino.symbol}.`;
+    preview.textContent = qtd > holding.amount
+      ? `Quantidade de ${origem.symbol} excede o que você possui.`
+      : `Trocando ${formatarQuantidade(qtd)} ${origem.symbol} (~${formatarReais(valorBrl)}) por ~${formatarQuantidade(valorBrl / destino.price)} ${destino.symbol}.`;
   }
 }
 
-swapFrom.onchange = atualizarPreviewSwap;
-swapTo.onchange = atualizarPreviewSwap;
-swapAmount.oninput = () => { swapError.textContent = ''; atualizarPreviewSwap(); };
+$('swap-from').onchange = atualizarPreviewSwap;
+$('swap-to').onchange = atualizarPreviewSwap;
+$('swap-amount').oninput = () => { $('swap-error').textContent = ''; atualizarPreviewSwap(); };
 
-swapForm.onsubmit = async (e) => {
+$('swap-form').onsubmit = async (e) => {
   e.preventDefault();
   if (!visualizadorCarteira) return;
-  const fromId = swapFrom.value;
-  const toId = swapTo.value;
-  const qtd = Number(swapAmount.value);
-  if (fromId === toId) {
-    swapError.textContent = 'A origem e o destino devem ser diferentes.';
-    return;
-  }
-  if (!(qtd > 0)) {
-    swapError.textContent = 'Informe uma quantidade válida.';
-    return;
-  }
+  const fromId = $('swap-from').value;
+  const toId = $('swap-to').value;
+  const qtd = Number($('swap-amount').value);
+  if (fromId === toId) return void ($('swap-error').textContent = 'A origem e o destino devem ser diferentes.');
+  if (!(qtd > 0)) return void ($('swap-error').textContent = 'Informe uma quantidade válida.');
 
-  const mapa = new Map(moedas.map((m) => [m.id, m]));
+  const mapa = mapaMoedas();
   const destino = mapa.get(toId);
-
+  const confirmBtn = $('swap-confirm');
   try {
-    let tempCarteira = structuredClone(visualizadorCarteira);
+    let nova = visualizadorCarteira;
     if (fromId === 'BRL') {
-      const resCompra = comprar(tempCarteira, destino, qtd);
-      tempCarteira = resCompra.carteira;
+      nova = comprar(nova, destino, qtd).carteira;
     } else {
-      const origem = mapa.get(fromId);
-      const resVenda = vender(tempCarteira, origem, qtd);
-      const resCompra = comprar(resVenda.carteira, destino, resVenda.total);
-      tempCarteira = resCompra.carteira;
+      const venda = vender(nova, mapa.get(fromId), qtd);
+      nova = comprar(venda.carteira, destino, venda.total).carteira;
     }
-
-    swapConfirm.disabled = true;
-    await api.salvarCarteira(tempCarteira);
-    visualizadorCarteira = tempCarteira;
+    confirmBtn.disabled = true;
+    await api.salvarCarteira(nova);
+    visualizadorCarteira = nova;
     await carregar();
     renderizarVisualizador();
-    swapAmount.value = '';
+    $('swap-amount').value = '';
     avisar('Swap realizado com sucesso!');
   } catch (err) {
-    swapError.textContent = err.message;
+    $('swap-error').textContent = err.message;
   } finally {
-    swapConfirm.disabled = false;
+    confirmBtn.disabled = false;
   }
 };
 
-$('details-close').onclick = () => detailsDialog.close();
-detailsDialog.addEventListener('close', () => { visualizadorCarteira = null; });
+$('details-close').onclick = () => $('wallet-details-dialog').close();
+$('wallet-details-dialog').addEventListener('close', () => { visualizadorCarteira = null; });
 
 carregar();

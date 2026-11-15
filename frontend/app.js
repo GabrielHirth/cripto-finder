@@ -128,7 +128,6 @@ function renderTudo() {
 // ---------- Painel ----------
 let graficoBarras = null;
 let graficoPizza = null;
-const CORES = ['#146c43', '#75b798', '#ea868f', '#b02a37'];
 
 function renderPainel() {
   const ind = calcularIndicadores(moedas);
@@ -186,21 +185,30 @@ function desenharGraficos(grupos) {
     datasets: [{
       label: 'Valor de mercado (R$ bilhões)',
       data: top.map((m) => Number((m.marketCap / 1e9).toFixed(1))),
-      backgroundColor: '#0a58ca',
+      backgroundColor: '#00e08a',
+      borderRadius: 4,
     }],
   };
   const pizza = {
     labels: grupos.map((g) => g.rotulo),
-    datasets: [{ data: grupos.map((g) => g.qtd), backgroundColor: CORES }],
+    datasets: [{ data: grupos.map((g) => g.qtd), backgroundColor: ['#00e08a', '#4da3ff', '#ffb454', '#ff4d6d'], borderColor: '#11161f', borderWidth: 2 }],
   };
-  const comum = { responsive: true, maintainAspectRatio: false };
+  const comum = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { labels: { color: '#8b98a9', font: { family: 'ui-monospace, Menlo, monospace', size: 11 } } } },
+    scales: {
+      x: { ticks: { color: '#8b98a9', font: { family: 'ui-monospace, Menlo, monospace' } }, grid: { color: '#1e2635' }, border: { color: '#1e2635' } },
+      y: { ticks: { color: '#8b98a9', font: { family: 'ui-monospace, Menlo, monospace' } }, grid: { color: '#1e2635' }, border: { color: '#1e2635' } },
+    },
+  };
 
   if (graficoBarras) {
     graficoBarras.data = barras;
     graficoBarras.update();
   } else {
     graficoBarras = new Chart($('chart-bar'), {
-      type: 'bar', data: barras, options: { ...comum, plugins: { legend: { display: false } } },
+      type: 'bar', data: barras, options: { ...comum, plugins: { ...comum.plugins, legend: { display: false } } },
     });
   }
   if (graficoPizza) {
@@ -208,7 +216,7 @@ function desenharGraficos(grupos) {
     graficoPizza.update();
   } else {
     graficoPizza = new Chart($('chart-pie'), {
-      type: 'pie', data: pizza, options: { ...comum, plugins: { legend: { position: 'bottom' } } },
+      type: 'pie', data: pizza, options: { ...comum, plugins: { ...comum.plugins, legend: { ...comum.plugins.legend, position: 'bottom' } } },
     });
   }
 }
