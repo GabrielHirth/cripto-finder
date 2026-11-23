@@ -52,7 +52,7 @@ local. Nenhuma outra senha ou chave está no repositório.
 Duas coleções (no RESTHeart padrão a raiz `/` já é o banco `restheart`, então a coleção é o 1º trecho da URL):
 
 - **`cripto-finder`** — 30+ moedas importadas da CoinGecko (mais as criadas pelo formulário).
-- **`wallets`** — a carteira simulada de cada navegador.
+- **`wallets`** — carteiras simuladas (uma por navegador na página principal; várias na página de gerenciamento).
 
 ### Exemplo de documento (`cripto-finder`)
 
@@ -123,7 +123,11 @@ Todos usam autenticação Basic. Coleção de moedas: `/cripto-finder`.
 | Alterar campos (favoritar) | `PATCH /cripto-finder/{id}` | 200 OK |
 | Excluir moeda (com confirmação) | `DELETE /cripto-finder/{id}` | 204 No Content |
 | Ler carteira | `GET /wallets/{id}` | 200 OK ou 404 |
+| Listar carteiras | `GET /wallets` | 200 OK |
+| Criar carteira | `POST /wallets` | 201 Created (id no cabeçalho `Location`) |
 | Salvar carteira (comprar, vender, zerar) | `PUT /wallets/{id}` | 200 OK (201 na criação) |
+| Alterar campos da carteira (ex.: saldo) | `PATCH /wallets/{id}` | 200 OK |
+| Excluir carteira | `DELETE /wallets/{id}` | 204 No Content |
 
 Sem o cabeçalho `Authorization`, qualquer rota responde **401 Unauthorized**.
 
@@ -140,9 +144,14 @@ A coleção do Postman/Insomnia está em [`postman/colecao.json`](postman/coleca
 - **Painel** (recalculado do banco depois de todo POST, PUT, PATCH ou DELETE): 7 indicadores, 2 gráficos
   (barras e pizza, Chart.js), ranking das 5 maiores altas em 24 h e agrupamento por tendência.
 - **Carteira virtual** com R$ 10.000 fictícios: comprar, vender, ganho/perda sobre o preço médio, histórico e recomeçar.
+- **Gerenciamento de carteiras** (em `carteira.html`): CRUD completo da coleção `wallets` — criar (POST), editar (PUT), alterar campo (PATCH) e excluir (DELETE) — com saldo fictício para testar.
+- **Compra simulada de criptoativos** com preview da quantidade recebida antes de confirmar.
+- **Visualizador de ativos** por carteira com valor total, lucro/prejuízo por posição e venda de 100% de um ativo.
+- **Swap (troca)** entre ativos e BRL, simulando venda + compra encadeadas com preço atual do banco.
 
 As regras ficam em `frontend/wallet-logic.js`, `documento.js` e `dashboard-logic.js` (testadas em `tests/`); a
-comunicação HTTP fica em `frontend/api.js` e a tela em `frontend/app.js`.
+comunicação HTTP fica em `frontend/api.js`; as telas em `frontend/app.js` e `frontend/carteira-page.js`; o
+estilo em `frontend/style.css`.
 
 ## Prints do painel
 
@@ -158,22 +167,38 @@ ao contrário da variação diária, que é bem mais volátil.
 
 ## Uso de IA
 
-_(descrever onde a IA foi usada, conforme a regra da atividade; todo o grupo deve saber explicar qualquer linha do código.)_
+A IA foi usada nas seguintes partes do projeto:
+
+- **Estrutura inicial e scaffolding:** definição do `docker-compose.yml` (MongoDB + RESTHeart + frontend nginx), `package.json`, `.gitignore` e organização das pastas `frontend/`, `scripts/`, `tests/`, `postman/`.
+- **Lógica da carteira simulada (`frontend/wallet-logic.js`, `frontend/carteira.js`):** regras puras de compra, venda, preço médio, resumo de posições e histórico limitado a 50 operações.
+- **Cliente HTTP com RESTHeart (`frontend/api.js`):** funções de CRUD (GET, POST, PUT, PATCH, DELETE) para as coleções `cripto-finder` e `wallets`, autenticação Basic Auth, e importação de preços da CoinGecko com preservação de campos do usuário (favorito, nota, comentário).
+- **Validação e montagem de documentos (`frontend/documento.js`):** `enriquecer`, `montarNovo`, `montarSubstituicao`, `validaFormulario` e helpers de tags.
+- **Telas e interação (`frontend/app.js`, `frontend/carteira-page.js`):** renderização do painel com gráficos Chart.js, formulários de criar/editar moedas, dialogs de compra, venda, visualizador de ativos e swap de ativos.
+- **Estilo (`frontend/style.css`):** tema dark "Trading Cockpit", design responsivo, botões, dialogs e toast.
+- **Refatoração de código:** o arquivo `frontend/carteira-page.js` foi reescrito aplicando as regras de Karpathy (helpers `el()`/`botao()`, `preencherSelect()`, remoção de variáveis órfãs), reduzindo de ~497 para ~250 linhas sem alterar a lógica.
+- **Configuração do container nginx (`config/nginx-default.conf`):** MIME corretos para módulos ES e rota `/carteira.html`, montada no `docker-compose.yml`.
+- **Documentação (`README.md`, `PRODUCT.md`, `DESIGN.md`):** registro do produto, decisões de design e atualização da estrutura e uso de IA.
+
+Todo código gerado com IA foi revisado linha por linha, executado em `npm test` (38 testes passando) e verificado com `node --check` antes de ser considerado pronto. Todo integrante do grupo deve ser capaz de explicar qualquer linha entregue.
 
 ## Estrutura
 
 ```
 cripto-finder/
 ├── docker-compose.yml        # MongoDB + RESTHeart + frontend (nginx)
+├── config/nginx-default.conf # config do nginx (MIME + rota carteira.html)
 ├── frontend/
-│   ├── index.html  style.css  app.js
-│   ├── api.js                # todas as requisições HTTP
-│   ├── documento.js          # modelo, validação e montagem dos documentos
-│   ├── dashboard-logic.js    # indicadores, ranking, agrupamento
-│   └── wallet-logic.js       # regras da carteira
-├── scripts/import-cripto.js  # importação pelo terminal
-├── tests/                    # npm test
+│   ├── index.html   style.css app.js          # painel principal e mercado
+│   ├── carteira.html  carteira-page.js        # CRUD de carteiras, compra, swap
+│   ├── api.js               # todas as requisições HTTP
+│   ├── documento.js         # modelo, validação e montagem dos documentos
+│   ├── dashboard-logic.js   # indicadores, ranking, agrupamento
+│   └── wallet-logic.js      # regras da carteira
+├── scripts/import-cripto.js # importação pelo terminal
+├── tests/                   # npm test (38 testes)
 ├── postman/colecao.json
+├── PRODUCT.md               # contexto durável do produto
+├── DESIGN.md                # mundo visual decidido (Trading Cockpit)
 └── README.md
 ```
 
